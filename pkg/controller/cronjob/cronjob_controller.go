@@ -142,13 +142,45 @@ func NewController(jobInformer batchv1informers.JobInformer, cronJobsInformer ba
 }
 
 // Run starts the main goroutine responsible for watching and syncing jobs.
-func (jm *Controller) Run(stopCh <-chan struct{}) {
+func (jm *Controller) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
-	klog.Infof("Starting CronJob Manager")
-	// Check things every 10 second.
-	go wait.Until(jm.syncAll, 10*time.Second, stopCh)
+	klog.Infof("Starting cronjob controller")
+
+	if !cache.WaitForNamedCacheSync("job", stopCh, jm.jobListerSynced, jm.cronJobListerSynced) {
+		return
+	}
+
+	for i := 0; i < workers; i++ {
+		go wait.Until(jm.worker, time.Second, stopCh)
+	}
+
 	<-stopCh
 	klog.Infof("Shutting down CronJob Manager")
+}
+
+func (jm *Controller) worker() {
+	for jm.processNextWorkItem() {
+	}
+}
+
+func (jm *Controller) processNextWorkItem() bool {
+	key, quit := jm.queue.Get()
+	if quit {
+		return false
+	}
+	defer jm.queue.Done(key)
+	if err := jm.sync(key.(string)); err != nil {
+		utilruntime.HandleError(fmt.Errorf("Error syncing CronJobController %v, requeuing: %v", key.(string), err))
+		jm.queue.AddRateLimited(key)
+	} else {
+		jm.queue.Forget(key)
+	}
+	return true
+}
+
+func (jm *Controller) sync(cronJobKey string) error {
+	// add business logic
+	return nil
 }
 
 // resolveControllerRef returns the controller referenced by a ControllerRef,
