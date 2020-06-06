@@ -47,6 +47,8 @@ func startCronJobController(ctx ControllerContext) (http.Handler, bool, error) {
 		return nil, false, nil
 	}
 	cjc, err := cronjob.NewController(
+		ctx.InformerFactory.Batch().V1().Jobs(),
+		ctx.InformerFactory.Batch().V1beta1().CronJobs(),
 		ctx.ClientBuilder.ClientOrDie("cronjob-controller"),
 	)
 	if err != nil {
