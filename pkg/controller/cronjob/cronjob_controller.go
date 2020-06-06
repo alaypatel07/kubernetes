@@ -30,6 +30,7 @@ Just periodically list jobs and cronJobs, and then reconcile them.
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"time"
 
@@ -44,13 +45,21 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	batchv1informers "k8s.io/client-go/informers/batch/v1"
+	batchv1beta1informers "k8s.io/client-go/informers/batch/v1beta1"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
+	batchv1listers "k8s.io/client-go/listers/batch/v1"
+	"k8s.io/client-go/listers/batch/v1beta1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/pager"
 	"k8s.io/client-go/tools/record"
 	ref "k8s.io/client-go/tools/reference"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
+	"k8s.io/kubernetes/pkg/apis/batch"
+	"k8s.io/kubernetes/pkg/controller"
 )
 
 // Utilities for dealing with Jobs and CronJobs and time.
@@ -58,17 +67,32 @@ import (
 // controllerKind contains the schema.GroupVersionKind for this controller type.
 var controllerKind = batchv1beta1.SchemeGroupVersion.WithKind("CronJob")
 
+// TODO: verify with @soltysh if its the right constants for queue
+var (
+	// DefaultCronJobBackOff is the default backoff period, exported for the e2e test
+	DefaultCronJobBackOff = 10 * time.Second
+	// MaxCronJobBackOff is the max backoff period, exported for the e2e test
+	MaxCronJobBackOff = 360 * time.Second
+)
+
 // Controller is a controller for CronJobs.
 type Controller struct {
 	kubeClient clientset.Interface
-	jobControl jobControlInterface
-	cjControl  cjControlInterface
-	podControl podControlInterface
+	queue      workqueue.RateLimitingInterface
 	recorder   record.EventRecorder
+
+	jobControl     jobControlInterface
+	cronJobControl cjControlInterface
+
+	jobLister     batchv1listers.JobLister
+	cronJobLister v1beta1.CronJobLister
+
+	jobListerSynced     cache.InformerSynced
+	cronJobListerSynced cache.InformerSynced
 }
 
 // NewController creates and initializes a new Controller.
-func NewController(kubeClient clientset.Interface) (*Controller, error) {
+func NewController(jobInformer batchv1informers.JobInformer, cronJobsInformer batchv1beta1informers.CronJobInformer, kubeClient clientset.Interface) (*Controller, error) {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(klog.Infof)
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
@@ -81,11 +105,38 @@ func NewController(kubeClient clientset.Interface) (*Controller, error) {
 
 	jm := &Controller{
 		kubeClient: kubeClient,
-		jobControl: realJobControl{KubeClient: kubeClient},
-		cjControl:  &realCJControl{KubeClient: kubeClient},
-		podControl: &realPodControl{KubeClient: kubeClient},
+		queue:      workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(DefaultCronJobBackOff, MaxCronJobBackOff), "cronjob"),
 		recorder:   eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cronjob-controller"}),
+
+		jobControl:     realJobControl{KubeClient: kubeClient},
+		cronJobControl: &realCJControl{KubeClient: kubeClient},
+
+		jobLister:     jobInformer.Lister(),
+		cronJobLister: cronJobsInformer.Lister(),
+
+		jobListerSynced:     jobInformer.Informer().HasSynced,
+		cronJobListerSynced: cronJobsInformer.Informer().HasSynced,
 	}
+
+	jobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    jm.addJob,
+		UpdateFunc: jm.updateJob,
+		DeleteFunc: jm.deleteJob,
+	})
+
+	cronJobsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			jm.enqueueController(obj)
+		},
+		UpdateFunc: func(_, curr interface{}) {
+			// TODO: need to figure out if inspection and queueing of old cronjob
+			//  is required.
+			jm.enqueueController(curr)
+		},
+		DeleteFunc: func(obj interface{}) {
+			jm.enqueueController(obj)
+		},
+	})
 
 	return jm, nil
 }
@@ -98,6 +149,135 @@ func (jm *Controller) Run(stopCh <-chan struct{}) {
 	go wait.Until(jm.syncAll, 10*time.Second, stopCh)
 	<-stopCh
 	klog.Infof("Shutting down CronJob Manager")
+}
+
+// resolveControllerRef returns the controller referenced by a ControllerRef,
+// or nil if the ControllerRef could not be resolved to a matching controller
+// of the correct Kind.
+func (jm *Controller) resolveControllerRef(namespace string, controllerRef *metav1.OwnerReference) *batchv1beta1.CronJob {
+	// We can't look up by UID, so look up by Name and then verify UID.
+	// Don't even try to look up by Name if it's the wrong Kind.
+	if controllerRef.Kind != controllerKind.Kind {
+		return nil
+	}
+	cronJob, err := jm.cronJobLister.CronJobs(namespace).Get(controllerRef.Name)
+	if err != nil {
+		return nil
+	}
+	if cronJob.UID != controllerRef.UID {
+		// The controller we found with this Name is not the same one that the
+		// ControllerRef points to.
+		return nil
+	}
+	return cronJob
+}
+
+// When a job is created, enqueue the controller that manages it and update it's expectations.
+func (jm *Controller) addJob(obj interface{}) {
+	job := obj.(*batchv1.Job)
+	if job.DeletionTimestamp != nil {
+		// on a restart of the controller controller, it's possible a new job shows up in a state that
+		// is already pending deletion. Prevent the job from being a creation observation.
+		jm.deleteJob(job)
+		return
+	}
+
+	// If it has a ControllerRef, that's all that matters.
+	if controllerRef := metav1.GetControllerOf(job); controllerRef != nil {
+		cronJob := jm.resolveControllerRef(job.Namespace, controllerRef)
+		if cronJob == nil {
+			return
+		}
+		jm.enqueueController(cronJob)
+		return
+	}
+
+	// Otherwise, it's an orphan.
+	// TODO: figure out how to handler orphan jobs
+	// replication controllers like deployment have label selector
+	// which is used to check if orphan children matches any resource
+	// it is not clear how to wire such logic.
+}
+
+// updateJob figures out what CronJob(s) manage a Job when the Job
+// is updated and wake them up. If the anything of the Job have changed, we need to
+// awaken both the old and new CronJob. old and cur must be *batchv1.Job
+// types.
+func (jm *Controller) updateJob(old, cur interface{}) {
+	curJob := cur.(*batch.Job)
+	oldJob := old.(*batch.Job)
+	if curJob.ResourceVersion == oldJob.ResourceVersion {
+		// Periodic resync will send update events for all known jobs.
+		// Two different versions of the same jobs will always have different RVs.
+		return
+	}
+
+	curControllerRef := metav1.GetControllerOf(curJob)
+	oldControllerRef := metav1.GetControllerOf(oldJob)
+	controllerRefChanged := !reflect.DeepEqual(curControllerRef, oldControllerRef)
+	if controllerRefChanged && oldControllerRef != nil {
+		// The ControllerRef was changed. Sync the old controller, if any.
+		if cronJob := jm.resolveControllerRef(oldJob.Namespace, oldControllerRef); cronJob != nil {
+			jm.enqueueController(cronJob)
+		}
+	}
+
+	// If it has a ControllerRef, that's all that matters.
+	if curControllerRef != nil {
+		cronJob := jm.resolveControllerRef(curJob.Namespace, curControllerRef)
+		if cronJob == nil {
+			return
+		}
+		jm.enqueueController(cronJob)
+		return
+	}
+
+	// Otherwise, it's an orphan.
+	// TODO: figure out how to handler orphan jobs
+	// replication controllers like deployment have label selector
+	// which is used to check if orphan children matches any resource
+	// it is not clear how to wire such logic.
+}
+
+func (jm *Controller) deleteJob(obj interface{}) {
+	job, ok := obj.(*batchv1.Job)
+
+	// When a delete is dropped, the relist will notice a job in the store not
+	// in the list, leading to the insertion of a tombstone object which contains
+	// the deleted key/value. Note that this value might be stale.
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("couldn't get object from tombstone %#v", obj))
+			return
+		}
+		job, ok = tombstone.Obj.(*batchv1.Job)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not a ReplicaSet %#v", obj))
+			return
+		}
+	}
+
+	controllerRef := metav1.GetControllerOf(job)
+	if controllerRef == nil {
+		// No controller should care about orphans being deleted.
+		return
+	}
+	cronJob := jm.resolveControllerRef(job.Namespace, controllerRef)
+	if cronJob == nil {
+		return
+	}
+	jm.enqueueController(cronJob)
+}
+
+func (jm *Controller) enqueueController(obj interface{}) {
+	key, err := controller.KeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %+v: %v", obj, err))
+		return
+	}
+
+	jm.queue.Add(key)
 }
 
 // syncAll lists all the CronJobs and Jobs and reconciles them.
@@ -137,8 +317,8 @@ func (jm *Controller) syncAll() {
 		if !ok {
 			return fmt.Errorf("expected type *batchv1beta1.CronJob, got type %T", cj)
 		}
-		syncOne(cj, jobsByCj[cj.UID], time.Now(), jm.jobControl, jm.cjControl, jm.recorder)
-		cleanupFinishedJobs(cj, jobsByCj[cj.UID], jm.jobControl, jm.cjControl, jm.recorder)
+		syncOne(cj, jobsByCj[cj.UID], time.Now(), jm.jobControl, jm.cronJobControl, jm.recorder)
+		cleanupFinishedJobs(cj, jobsByCj[cj.UID], jm.jobControl, jm.cronJobControl, jm.recorder)
 		return nil
 	})
 
