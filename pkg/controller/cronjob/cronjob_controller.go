@@ -36,11 +36,13 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/robfig/cron"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -129,7 +131,7 @@ func NewController(jobInformer batchv1informers.JobInformer, cronJobsInformer ba
 			jm.enqueueController(obj)
 		},
 		UpdateFunc: func(_, curr interface{}) {
-			// TODO: need to figure out if inspection and queueing of old cronjob
+			// TODO: @alpatel need to figure out if inspection and queueing of old cronjob
 			//  is required.
 			jm.enqueueController(curr)
 		},
@@ -169,18 +171,64 @@ func (jm *Controller) processNextWorkItem() bool {
 		return false
 	}
 	defer jm.queue.Done(key)
-	if err := jm.sync(key.(string)); err != nil {
+	err, requeueAfter := jm.sync(key.(string))
+	switch {
+	case err != nil:
 		utilruntime.HandleError(fmt.Errorf("Error syncing CronJobController %v, requeuing: %v", key.(string), err))
 		jm.queue.AddRateLimited(key)
-	} else {
+	case requeueAfter != nil:
+		jm.queue.AddAfter(key, *requeueAfter)
+	default:
 		jm.queue.Forget(key)
 	}
 	return true
 }
 
-func (jm *Controller) sync(cronJobKey string) error {
-	// add business logic
-	return nil
+func (jm *Controller) sync(cronJobKey string) (error, *time.Duration) {
+	ns, name, err := cache.SplitMetaNamespaceKey(cronJobKey)
+	if err != nil {
+		return err, nil
+	}
+
+	cronJob, err := jm.cronJobLister.CronJobs(ns).Get(name)
+	switch {
+	case errors.IsNotFound(err):
+		// may be cronjob is deleted, dont need to requeue this key
+		return nil, nil
+	case err != nil:
+		// for other transient apiserver error requeue with exponential backoff
+		return err, nil
+	default:
+		// fallthrough
+	}
+
+	jobList, err := jm.jobLister.Jobs(ns).List(labels.Everything())
+	if err != nil {
+		return err, nil
+	}
+
+	jobsToBeReconciled := []batchv1.Job{}
+
+	for _, job := range jobList {
+		// If it has a ControllerRef, that's all that matters.
+		if controllerRef := metav1.GetControllerOf(job); controllerRef != nil && controllerRef.Name == name {
+			// this job is needs to be reconciled
+			jobsToBeReconciled = append(jobsToBeReconciled, *job)
+		}
+	}
+
+	err, requeueAfter := syncOne(cronJob, jobsToBeReconciled, time.Now(), jm.jobControl, jm.cronJobControl, jm.recorder)
+	// TODO: @alpatel need to rework this function to handle re-queuing on errors
+	cleanupFinishedJobs(cronJob, jobsToBeReconciled, jm.jobControl, jm.cronJobControl, jm.recorder)
+	switch {
+	case err != nil:
+		return err, nil
+	case requeueAfter != nil:
+		return nil, requeueAfter
+	default:
+		// TODO: @alpatel, figure out how to handle this case
+	}
+	return nil, nil
 }
 
 // resolveControllerRef returns the controller referenced by a ControllerRef,
@@ -225,7 +273,7 @@ func (jm *Controller) addJob(obj interface{}) {
 	}
 
 	// Otherwise, it's an orphan.
-	// TODO: figure out how to handler orphan jobs
+	// TODO: figure out how to handle orphan jobs
 	// replication controllers like deployment have label selector
 	// which is used to check if orphan children matches any resource
 	// it is not clear how to wire such logic.
@@ -265,7 +313,7 @@ func (jm *Controller) updateJob(old, cur interface{}) {
 	}
 
 	// Otherwise, it's an orphan.
-	// TODO: figure out how to handler orphan jobs
+	// TODO: figure out how to handle orphan jobs
 	// replication controllers like deployment have label selector
 	// which is used to check if orphan children matches any resource
 	// it is not clear how to wire such logic.
@@ -313,6 +361,7 @@ func (jm *Controller) enqueueController(obj interface{}) {
 }
 
 // syncAll lists all the CronJobs and Jobs and reconciles them.
+// TODO: @alpatel remove this function eventually since it is not used
 func (jm *Controller) syncAll() {
 	// List children (Jobs) before parents (CronJob).
 	// This guarantees that if we see any Job that got orphaned by the GC orphan finalizer,
@@ -420,12 +469,27 @@ func removeOldestJobs(cj *batchv1beta1.CronJob, js []batchv1.Job, jc jobControlI
 	}
 }
 
+// TODO: @alpatel we need to return errors from this function, in order to allow
+//  for errors to propagate up the reconcile function and kick in queues exponential
+//  backed off retries more details on inline code comments in the func
+
 // syncOne reconciles a CronJob with a list of any Jobs that it created.
 // All known jobs created by "cj" should be included in "js".
 // The current time is passed in to facilitate testing.
 // It has no receiver, to facilitate testing.
-func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobControlInterface, cjc cjControlInterface, recorder record.EventRecorder) {
+func syncOne(
+	cj *batchv1beta1.CronJob,
+	js []batchv1.Job,
+	now time.Time,
+	jc jobControlInterface,
+	cjc cjControlInterface,
+	recorder record.EventRecorder) (error, *time.Duration) {
 	nameForLog := fmt.Sprintf("%s/%s", cj.Namespace, cj.Name)
+
+	sched, err := cron.ParseStandard(cj.Spec.Schedule)
+	if err != nil {
+		return fmt.Errorf("unparseable schedule: %s : %s", cj.Spec.Schedule, err), nil
+	}
 
 	childrenJobs := make(map[types.UID]bool)
 	for _, j := range js {
@@ -463,33 +527,38 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 	updatedCJ, err := cjc.UpdateStatus(cj)
 	if err != nil {
 		klog.Errorf("Unable to update status for %s (rv = %s): %v", nameForLog, cj.ResourceVersion, err)
-		return
+		return err, nil
 	}
 	*cj = *updatedCJ
 
 	if cj.DeletionTimestamp != nil {
 		// The CronJob is being deleted.
 		// Don't do anything other than updating status.
-		return
+		return fmt.Errorf("cronjob %s/%s is being deleted", cj.Namespace, cj.Name), nil
 	}
 
 	if cj.Spec.Suspend != nil && *cj.Spec.Suspend {
 		klog.V(4).Infof("Not starting job for %s because it is suspended", nameForLog)
-		return
+		return nil, nil
 	}
 
 	times, err := getRecentUnmetScheduleTimes(*cj, now)
-	if err != nil {
+	switch {
+	case err != nil && len(times) == 0:
+		// too many missed jobs, schedule the next one on time and return
+		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+		return nil, &t
+	case err != nil:
+		// return error
 		recorder.Eventf(cj, v1.EventTypeWarning, "FailedNeedsStart", "Cannot determine if job needs to be started: %v", err)
 		klog.Errorf("Cannot determine if %s needs to be started: %v", nameForLog, err)
-		return
-	}
-	// TODO: handle multiple unmet start times, from oldest to newest, updating status as needed.
-	if len(times) == 0 {
+		return err, nil
+	case len(times) == 0:
+		// no unmet start time, return
 		klog.V(4).Infof("No unmet start times for %s", nameForLog)
-		return
-	}
-	if len(times) > 1 {
+		return nil, nil
+	default:
+		// multiple unmet start times, start the last one.
 		klog.V(4).Infof("Multiple unmet start times for %s so only starting last one", nameForLog)
 	}
 
@@ -508,7 +577,8 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 		// Status.LastScheduleTime, Status.LastMissedTime), and then so we won't generate
 		// and event the next time we process it, and also so the user looking at the status
 		// can see easily that there was a missed execution.
-		return
+		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+		return nil, &t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ForbidConcurrent && len(cj.Status.Active) > 0 {
 		// Regardless which source of information we use for the set of active jobs,
@@ -521,7 +591,9 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 		// With replace, we could use a name that is deterministic per execution time.
 		// But that would mean that you could not inspect prior successes or failures of Forbid jobs.
 		klog.V(4).Infof("Not starting job for %s because of prior execution still running and concurrency policy is Forbid", nameForLog)
-		return
+		// TODO: @alpatel requeue this cronjob for next scheduled time
+		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+		return nil, &t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ReplaceConcurrent {
 		for _, j := range cj.Status.Active {
@@ -530,10 +602,10 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 			job, err := jc.GetJob(j.Namespace, j.Name)
 			if err != nil {
 				recorder.Eventf(cj, v1.EventTypeWarning, "FailedGet", "Get job: %v", err)
-				return
+				return err, nil
 			}
 			if !deleteJob(cj, job, jc, recorder) {
-				return
+				return fmt.Errorf("could not replace job %s/%s", job.Namespace, job.Name), nil
 			}
 		}
 	}
@@ -541,7 +613,7 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 	jobReq, err := getJobFromTemplate(cj, scheduledTime)
 	if err != nil {
 		klog.Errorf("Unable to make Job from template in %s: %v", nameForLog, err)
-		return
+		return err, nil
 	}
 	jobResp, err := jc.CreateJob(cj.Namespace, jobReq)
 	if err != nil {
@@ -550,7 +622,7 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 		if !errors.HasStatusCause(err, v1.NamespaceTerminatingCause) {
 			recorder.Eventf(cj, v1.EventTypeWarning, "FailedCreate", "Error creating job: %v", err)
 		}
-		return
+		return err, nil
 	}
 	klog.V(4).Infof("Created Job %s for %s", jobResp.Name, nameForLog)
 	recorder.Eventf(cj, v1.EventTypeNormal, "SuccessfulCreate", "Created job %v", jobResp.Name)
@@ -566,18 +638,22 @@ func syncOne(cj *batchv1beta1.CronJob, js []batchv1.Job, now time.Time, jc jobCo
 	// scheduled time).
 
 	// Add the just-started job to the status list.
-	ref, err := getRef(jobResp)
+	jobRef, err := getRef(jobResp)
 	if err != nil {
 		klog.V(2).Infof("Unable to make object reference for job for %s", nameForLog)
+		return fmt.Errorf("unable to make object reference for job for %s", nameForLog), nil
 	} else {
-		cj.Status.Active = append(cj.Status.Active, *ref)
+		cj.Status.Active = append(cj.Status.Active, *jobRef)
 	}
 	cj.Status.LastScheduleTime = &metav1.Time{Time: scheduledTime}
 	if _, err := cjc.UpdateStatus(cj); err != nil {
 		klog.Infof("Unable to update status for %s (rv = %s): %v", nameForLog, cj.ResourceVersion, err)
+		return fmt.Errorf("unable to update status for %s (rv = %s): %v", nameForLog, cj.ResourceVersion, err), nil
 	}
+	// TODO: @alpatel success requeue this cronjob for next scheduled time
 
-	return
+	t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+	return nil, &t
 }
 
 // deleteJob reaps a job, deleting the job, the pods and the reference in the active list
