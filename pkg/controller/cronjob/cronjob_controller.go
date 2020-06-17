@@ -70,6 +70,7 @@ import (
 var controllerKind = batchv1beta1.SchemeGroupVersion.WithKind("CronJob")
 
 // TODO: verify with @soltysh if its the right constants for queue
+// not needed see below for explanation about which queue to use
 var (
 	// DefaultCronJobBackOff is the default backoff period, exported for the e2e test
 	DefaultCronJobBackOff = 10 * time.Second
@@ -107,8 +108,12 @@ func NewController(jobInformer batchv1informers.JobInformer, cronJobsInformer ba
 
 	jm := &Controller{
 		kubeClient: kubeClient,
-		queue:      workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(DefaultCronJobBackOff, MaxCronJobBackOff), "cronjob"),
-		recorder:   eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cronjob-controller"}),
+		// you don't need this queue, it is used in jobs b/c we use that
+		// for retries, for cronjob we won't do that this way, regular
+		// delaying queue should be sufficient: NewNamedDelayingQueue is
+		// what you're looking for
+		queue:    workqueue.NewNamedRateLimitingQueue(workqueue.NewItemExponentialFailureRateLimiter(DefaultCronJobBackOff, MaxCronJobBackOff), "cronjob"),
+		recorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cronjob-controller"}),
 
 		jobControl:     realJobControl{KubeClient: kubeClient},
 		cronJobControl: &realCJControl{KubeClient: kubeClient},
@@ -133,6 +138,7 @@ func NewController(jobInformer batchv1informers.JobInformer, cronJobsInformer ba
 		UpdateFunc: func(_, curr interface{}) {
 			// TODO: @alpatel need to figure out if inspection and queueing of old cronjob
 			//  is required.
+			// this is the hardest one, I know ;-)
 			jm.enqueueController(curr)
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -194,12 +200,14 @@ func (jm *Controller) sync(cronJobKey string) (error, *time.Duration) {
 	switch {
 	case errors.IsNotFound(err):
 		// may be cronjob is deleted, dont need to requeue this key
+		// maybe worth a log
 		return nil, nil
 	case err != nil:
 		// for other transient apiserver error requeue with exponential backoff
 		return err, nil
 	default:
 		// fallthrough
+		// empty means not needed ;-)
 	}
 
 	jobList, err := jm.jobLister.Jobs(ns).List(labels.Everything())
@@ -277,6 +285,9 @@ func (jm *Controller) addJob(obj interface{}) {
 	// replication controllers like deployment have label selector
 	// which is used to check if orphan children matches any resource
 	// it is not clear how to wire such logic.
+	// we don't have orphans, jobs are a full-fledged resources which
+	// are handled by their own controller, so for now I wouldn't do anything
+	// some stuff will start popping up as you go and start running this controller
 }
 
 // updateJob figures out what CronJob(s) manage a Job when the Job
@@ -317,6 +328,7 @@ func (jm *Controller) updateJob(old, cur interface{}) {
 	// replication controllers like deployment have label selector
 	// which is used to check if orphan children matches any resource
 	// it is not clear how to wire such logic.
+	// not needed, yet I think, see above comment
 }
 
 func (jm *Controller) deleteJob(obj interface{}) {
@@ -486,6 +498,7 @@ func syncOne(
 	recorder record.EventRecorder) (error, *time.Duration) {
 	nameForLog := fmt.Sprintf("%s/%s", cj.Namespace, cj.Name)
 
+	// this is happening again in getRecentUnmetScheduleTimes, why is this needed then here?
 	sched, err := cron.ParseStandard(cj.Spec.Schedule)
 	if err != nil {
 		return fmt.Errorf("unparseable schedule: %s : %s", cj.Spec.Schedule, err), nil
@@ -546,6 +559,9 @@ func syncOne(
 	switch {
 	case err != nil && len(times) == 0:
 		// too many missed jobs, schedule the next one on time and return
+		// add a warning event and just schedule the next, we should not
+		// stop processing like the old controller does, alternatively
+		// we should suspend cronjob but still with that event
 		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
 		return nil, &t
 	case err != nil:
