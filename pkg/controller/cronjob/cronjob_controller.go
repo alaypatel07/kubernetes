@@ -36,7 +36,6 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/robfig/cron"
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	"k8s.io/api/core/v1"
@@ -69,18 +68,10 @@ import (
 // controllerKind contains the schema.GroupVersionKind for this controller type.
 var controllerKind = batchv1beta1.SchemeGroupVersion.WithKind("CronJob")
 
-// TODO: verify with @soltysh if its the right constants for queue
-var (
-	// DefaultCronJobBackOff is the default backoff period, exported for the e2e test
-	DefaultCronJobBackOff = 10 * time.Second
-	// MaxCronJobBackOff is the max backoff period, exported for the e2e test
-	MaxCronJobBackOff = 360 * time.Second
-)
-
 // Controller is a controller for CronJobs.
 type Controller struct {
 	kubeClient clientset.Interface
-	queue      workqueue.RateLimitingInterface
+	queue      workqueue.DelayingInterface
 	recorder   record.EventRecorder
 
 	jobControl     jobControlInterface
@@ -175,11 +166,11 @@ func (jm *Controller) processNextWorkItem() bool {
 	switch {
 	case err != nil:
 		utilruntime.HandleError(fmt.Errorf("Error syncing CronJobController %v, requeuing: %v", key.(string), err))
-		jm.queue.AddRateLimited(key)
+		jm.queue.Add(key)
 	case requeueAfter != nil:
 		jm.queue.AddAfter(key, *requeueAfter)
 	default:
-		jm.queue.Forget(key)
+		jm.queue.Done(key)
 	}
 	return true
 }
@@ -194,12 +185,12 @@ func (jm *Controller) sync(cronJobKey string) (error, *time.Duration) {
 	switch {
 	case errors.IsNotFound(err):
 		// may be cronjob is deleted, dont need to requeue this key
+		nameForLog := fmt.Sprintf("%s/%s", ns, name)
+		klog.Warningf("cronjob not found, may be it is deleted", nameForLog, err)
 		return nil, nil
 	case err != nil:
 		// for other transient apiserver error requeue with exponential backoff
 		return err, nil
-	default:
-		// fallthrough
 	}
 
 	jobList, err := jm.jobLister.Jobs(ns).List(labels.Everything())
@@ -271,12 +262,6 @@ func (jm *Controller) addJob(obj interface{}) {
 		jm.enqueueController(cronJob)
 		return
 	}
-
-	// Otherwise, it's an orphan.
-	// TODO: figure out how to handle orphan jobs
-	// replication controllers like deployment have label selector
-	// which is used to check if orphan children matches any resource
-	// it is not clear how to wire such logic.
 }
 
 // updateJob figures out what CronJob(s) manage a Job when the Job
@@ -311,12 +296,6 @@ func (jm *Controller) updateJob(old, cur interface{}) {
 		jm.enqueueController(cronJob)
 		return
 	}
-
-	// Otherwise, it's an orphan.
-	// TODO: figure out how to handle orphan jobs
-	// replication controllers like deployment have label selector
-	// which is used to check if orphan children matches any resource
-	// it is not clear how to wire such logic.
 }
 
 func (jm *Controller) deleteJob(obj interface{}) {
@@ -486,11 +465,6 @@ func syncOne(
 	recorder record.EventRecorder) (error, *time.Duration) {
 	nameForLog := fmt.Sprintf("%s/%s", cj.Namespace, cj.Name)
 
-	sched, err := cron.ParseStandard(cj.Spec.Schedule)
-	if err != nil {
-		return fmt.Errorf("unparseable schedule: %s : %s", cj.Spec.Schedule, err), nil
-	}
-
 	childrenJobs := make(map[types.UID]bool)
 	for _, j := range js {
 		childrenJobs[j.ObjectMeta.UID] = true
@@ -546,8 +520,9 @@ func syncOne(
 	switch {
 	case err != nil && len(times) == 0:
 		// too many missed jobs, schedule the next one on time and return
-		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
-		return nil, &t
+		recorder.Eventf(cj, v1.EventTypeWarning, "TooManyMissedTimes", "Too many missed times for the cronjob, will schedule the next one", err)
+		klog.Errorf("Too many missed times for the cronjob, will schedule the next one", nameForLog, err)
+		return nil, nil
 	case err != nil:
 		// return error
 		recorder.Eventf(cj, v1.EventTypeWarning, "FailedNeedsStart", "Cannot determine if job needs to be started: %v", err)
@@ -577,7 +552,7 @@ func syncOne(
 		// Status.LastScheduleTime, Status.LastMissedTime), and then so we won't generate
 		// and event the next time we process it, and also so the user looking at the status
 		// can see easily that there was a missed execution.
-		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+		t := time.Duration(int64(scheduledTime.Sub(now).Seconds()))
 		return nil, &t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ForbidConcurrent && len(cj.Status.Active) > 0 {
@@ -592,7 +567,7 @@ func syncOne(
 		// But that would mean that you could not inspect prior successes or failures of Forbid jobs.
 		klog.V(4).Infof("Not starting job for %s because of prior execution still running and concurrency policy is Forbid", nameForLog)
 		// TODO: @alpatel requeue this cronjob for next scheduled time
-		t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+		t := time.Duration(int64(scheduledTime.Sub(now).Seconds()))
 		return nil, &t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ReplaceConcurrent {
@@ -652,7 +627,7 @@ func syncOne(
 	}
 	// TODO: @alpatel success requeue this cronjob for next scheduled time
 
-	t := time.Duration(int64(sched.Next(now).Sub(now).Seconds()))
+	t := time.Duration(int64(scheduledTime.Sub(now).Seconds()))
 	return nil, &t
 }
 
