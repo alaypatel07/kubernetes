@@ -23,3 +23,12 @@ type JobControllerConfiguration struct {
 	// but more CPU (and network) load.
 	ConcurrentJobSyncs int32
 }
+
+// CronJobControllerV2Configuration contains elements describing the
+// CronJobControllerV2.
+type CronJobControllerV2Configuration struct {
+	// concurrentJobSyncs is the number of cron job objects that are
+	// allowed to sync concurrently. Larger number = more responsive jobs,
+	// but more CPU (and network) load.
+	ConcurrentJobSyncs int32
+}
