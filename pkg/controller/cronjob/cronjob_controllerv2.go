@@ -92,6 +92,7 @@ func NewControllerV2(jobInformer batchv1informers.JobInformer, cronJobsInformer 
 
 		jobListerSynced:     jobInformer.Informer().HasSynced,
 		cronJobListerSynced: cronJobsInformer.Informer().HasSynced,
+		now:                 time.Now,
 	}
 
 	jobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -164,7 +165,7 @@ func (jm *ControllerV2) sync(cronJobKey string) (error, *time.Duration) {
 	switch {
 	case errors.IsNotFound(err):
 		// may be cronjob is deleted, dont need to requeue this key
-		klog.V(2).InfoS("cronjob %s not found, may be it is deleted", "cronjob", klog.KRef(ns, name), "err", err)
+		klog.V(2).InfoS("cronjob %s not found, may be it is deleted", klog.KRef(ns, name), "err", err)
 		return nil, nil
 	case err != nil:
 		// for other transient apiserver error requeue with exponential backoff
@@ -466,6 +467,13 @@ func syncOne2(
 		klog.ErrorS(err, "too many missed times", "cronjob", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()), err)
 		// schedule for next period
 		t := sched.Next(now).Sub(now)
+
+		// in order to unwedge the cronjob from always returning from this block
+		cj.Status.LastScheduleTime = &metav1.Time{Time: now}
+		if _, err := cjc.UpdateStatus(cj); err != nil {
+			klog.InfoS("Unable to update status", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()), "resourceVersion", cj.ResourceVersion, "err", err)
+			return fmt.Errorf("unable to update status for %s (rv = %s): %v", klog.KRef(cj.GetNamespace(), cj.GetName()), cj.ResourceVersion, err), nil
+		}
 		return nil, &t
 	case len(times) == 0:
 		// no unmet start time, return.
@@ -473,8 +481,7 @@ func syncOne2(
 		// Otherwise, the queue is always suppose to trigger sync function at the time o
 		// the scheduled time, that will give atleast 1 unmet time schedule
 		klog.V(4).InfoS("No unmet start times", "cronjob", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
-		t := sched.Next(now).Sub(now)
-		return nil, &t
+		return nil, nil
 	}
 
 	scheduledTime := times[len(times)-1]
