@@ -10,6 +10,7 @@ filegroup(
     srcs = [
         ":package-srcs",
         "//staging/src/k8s.io/kube-controller-manager/config/v1alpha1:all-srcs",
+        "//staging/src/k8s.io/kube-controller-manager/features:all-srcs",
     ],
     tags = ["automanaged"],
     visibility = ["//visibility:public"],
