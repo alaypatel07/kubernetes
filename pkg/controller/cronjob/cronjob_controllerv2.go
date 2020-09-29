@@ -48,6 +48,8 @@ import (
 	"k8s.io/kubernetes/pkg/controller"
 )
 
+var delta100ms = 100 * time.Millisecond
+
 // Refactored Cronjob controller that uses DelayingQueue and informers
 
 // ControllerV2 is a controller for CronJobs.
@@ -165,7 +167,7 @@ func (jm *ControllerV2) sync(cronJobKey string) (error, *time.Duration) {
 	switch {
 	case errors.IsNotFound(err):
 		// may be cronjob is deleted, dont need to requeue this key
-		klog.V(2).InfoS("cronjob %s not found, may be it is deleted", klog.KRef(ns, name), "err", err)
+		klog.V(2).InfoS("cronjob %s not found, may be it is deleted", "cronjob", klog.KRef(ns, name), "err", err)
 		return nil, nil
 	case err != nil:
 		// for other transient apiserver error requeue with exponential backoff
@@ -362,9 +364,9 @@ func (jm *ControllerV2) updateCronJob(old interface{}, curr interface{}) {
 			return
 		}
 		now := jm.now()
-		t := sched.Next(now).Sub(now)
+		t := nextScheduledTimeDurationWithDelta(sched, now)
 
-		jm.enqueueControllerWithTime(curr, t)
+		jm.enqueueControllerWithTime(curr, *t)
 		return
 	}
 
@@ -466,22 +468,26 @@ func syncOne2(
 		recorder.Eventf(cj, v1.EventTypeWarning, "TooManyMissedTimes", "Too many missed times for the cronjob, will schedule the next one", err)
 		klog.ErrorS(err, "too many missed times", "cronjob", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()), err)
 		// schedule for next period
-		t := sched.Next(now).Sub(now)
+		t := nextScheduledTimeDurationWithDelta(sched, now)
 
 		// in order to unwedge the cronjob from always returning from this block
+		// TODO: @alpatel, in the future we should add a .status.nextScheduleTime
+		//    and refactor getRecentUnmetScheduleTimes to give us 101th time after
+		//    100 missed times
 		cj.Status.LastScheduleTime = &metav1.Time{Time: now}
 		if _, err := cjc.UpdateStatus(cj); err != nil {
 			klog.InfoS("Unable to update status", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()), "resourceVersion", cj.ResourceVersion, "err", err)
 			return fmt.Errorf("unable to update status for %s (rv = %s): %v", klog.KRef(cj.GetNamespace(), cj.GetName()), cj.ResourceVersion, err), nil
 		}
-		return nil, &t
+		return nil, t
 	case len(times) == 0:
 		// no unmet start time, return.
 		// The only time this should happen is if queue is filled after restart.
-		// Otherwise, the queue is always suppose to trigger sync function at the time o
+		// Otherwise, the queue is always suppose to trigger sync function at the time of
 		// the scheduled time, that will give atleast 1 unmet time schedule
 		klog.V(4).InfoS("No unmet start times", "cronjob", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
-		return nil, nil
+		t := nextScheduledTimeDurationWithDelta(sched, now)
+		return nil, t
 	}
 
 	scheduledTime := times[len(times)-1]
@@ -504,8 +510,8 @@ func syncOne2(
 		// Status.LastScheduleTime, Status.LastMissedTime), and then so we won't generate
 		// and event the next time we process it, and also so the user looking at the status
 		// can see easily that there was a missed execution.
-		t := sched.Next(now).Sub(now)
-		return nil, &t
+		t := nextScheduledTimeDurationWithDelta(sched, now)
+		return nil, t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ForbidConcurrent && len(cj.Status.Active) > 0 {
 		// Regardless which source of information we use for the set of active jobs,
@@ -521,8 +527,8 @@ func syncOne2(
 		// With replace, we could use a name that is deterministic per execution time.
 		// But that would mean that you could not inspect prior successes or failures of Forbid jobs.
 		klog.V(4).InfoS("Not starting job for %s because of prior execution still running and concurrency policy is Forbid", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
-		t := sched.Next(now).Sub(now)
-		return nil, &t
+		t := nextScheduledTimeDurationWithDelta(sched, now)
+		return nil, t
 	}
 	if cj.Spec.ConcurrencyPolicy == batchv1beta1.ReplaceConcurrent {
 		for _, j := range cj.Status.Active {
@@ -582,8 +588,18 @@ func syncOne2(
 		return fmt.Errorf("unable to update status for %s (rv = %s): %v", klog.KRef(cj.GetNamespace(), cj.GetName()), cj.ResourceVersion, err), nil
 	}
 
-	t := sched.Next(now).Sub(now)
-	return nil, &t
+	t := nextScheduledTimeDurationWithDelta(sched, now)
+	return nil, t
+}
+
+// nextScheduledTimeDurationWithDelta returns the time duration to requeue based on
+// the schedule and current time. It adds a 100ms padding to the next requeue to account
+// for Network Time Protocol(NTP) time skews. If the time drifts are adjusted which in most
+// realistic cases would be around 100s, scheduled cron will still be executed without missing
+// the schedule.
+func nextScheduledTimeDurationWithDelta(sched cron.Schedule, now time.Time) *time.Duration {
+	t := sched.Next(now).Add(delta100ms).Sub(now)
+	return &t
 }
 
 // cleanupFinishedJobs cleanups finished jobs created by a CronJob
