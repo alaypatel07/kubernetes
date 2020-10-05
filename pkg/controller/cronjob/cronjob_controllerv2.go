@@ -21,9 +21,8 @@ import (
 	"reflect"
 	"time"
 
-	"k8s.io/klog/v2"
-
 	"github.com/robfig/cron"
+
 	batchv1 "k8s.io/api/batch/v1"
 	batchv1beta1 "k8s.io/api/batch/v1beta1"
 	"k8s.io/api/core/v1"
@@ -44,7 +43,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
-	"k8s.io/kubernetes/pkg/apis/batch"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/controller"
 )
 
@@ -261,8 +260,8 @@ func (jm *ControllerV2) addJob(obj interface{}) {
 // awaken both the old and new CronJob. old and cur must be *batchv1.Job
 // types.
 func (jm *ControllerV2) updateJob(old, cur interface{}) {
-	curJob := cur.(*batch.Job)
-	oldJob := old.(*batch.Job)
+	curJob := cur.(*batchv1.Job)
+	oldJob := old.(*batchv1.Job)
 	if curJob.ResourceVersion == oldJob.ResourceVersion {
 		// Periodic resync will send update events for all known jobs.
 		// Two different versions of the same jobs will always have different RVs.
