@@ -22,13 +22,13 @@ package app
 
 import (
 	"fmt"
-
 	"net/http"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/kube-controller-manager/features"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/kubernetes/pkg/controller/cronjob"
 	"k8s.io/kubernetes/pkg/controller/job"
+	kubefeatures "k8s.io/kubernetes/pkg/features"
 )
 
 func startJobController(ctx ControllerContext) (http.Handler, bool, error) {
@@ -47,7 +47,7 @@ func startCronJobController(ctx ControllerContext) (http.Handler, bool, error) {
 	if !ctx.AvailableResources[schema.GroupVersionResource{Group: "batch", Version: "v1beta1", Resource: "cronjobs"}] {
 		return nil, false, nil
 	}
-	if features.DefaultMutableFeatureGate.Enabled(features.CronjobControllerV2) {
+	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.CronJobControllerV2) {
 		cj2c, err := cronjob.NewControllerV2(ctx.InformerFactory.Batch().V1().Jobs(),
 			ctx.InformerFactory.Batch().V1beta1().CronJobs(),
 			ctx.ClientBuilder.ClientOrDie("cronjob-controller-v2"),
