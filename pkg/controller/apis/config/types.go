@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentbaseconfig "k8s.io/component-base/config"
 	csrsigningconfig "k8s.io/kubernetes/pkg/controller/certificates/signer/config"
+	cronjobconfig "k8s.io/kubernetes/pkg/controller/cronjob/config"
 	daemonconfig "k8s.io/kubernetes/pkg/controller/daemon/config"
 	deploymentconfig "k8s.io/kubernetes/pkg/controller/deployment/config"
 	endpointconfig "k8s.io/kubernetes/pkg/controller/endpoint/config"
@@ -91,7 +92,7 @@ type KubeControllerManagerConfiguration struct {
 	JobController jobconfig.JobControllerConfiguration
 	// CronJobControllerV2Configuration holds configuration for CronJobControllerV2
 	// related features.
-	CronJobControllerV2 jobconfig.CronJobControllerV2Configuration
+	CronJobControllerV2 cronjobconfig.CronJobControllerV2Configuration
 	// NamespaceControllerConfiguration holds configuration for NamespaceController
 	// related features.
 	NamespaceController namespaceconfig.NamespaceControllerConfiguration

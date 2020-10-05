@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,12 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+// +k8s:deepcopy-gen=package
 
-// JobControllerConfiguration contains elements describing JobController.
-type JobControllerConfiguration struct {
-	// concurrentJobSyncs is the number of job objects that are
-	// allowed to sync concurrently. Larger number = more responsive jobs,
-	// but more CPU (and network) load.
-	ConcurrentJobSyncs int32
-}
+package config // import "k8s.io/kubernetes/pkg/controller/cronjob/config"

@@ -55,7 +55,7 @@ func startCronJobController(ctx ControllerContext) (http.Handler, bool, error) {
 		if err != nil {
 			return nil, true, fmt.Errorf("error creating CronJob controller V2: %v", err)
 		}
-		go cj2c.Run(int(ctx.ComponentConfig.CronJobControllerV2.ConcurrentJobSyncs), ctx.Stop)
+		go cj2c.Run(int(ctx.ComponentConfig.CronJobControllerV2.ConcurrentCronJobSyncs), ctx.Stop)
 		return nil, true, nil
 	}
 	cjc, err := cronjob.NewController(
