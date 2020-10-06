@@ -118,9 +118,12 @@ func NewControllerV2(jobInformer batchv1informers.JobInformer, cronJobsInformer 
 // Run starts the main goroutine responsible for watching and syncing jobs.
 func (jm *ControllerV2) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
-	klog.Infof("Starting cronjob controller v2")
+	defer jm.queue.ShutDown()
 
-	if !cache.WaitForNamedCacheSync("job", stopCh, jm.jobListerSynced, jm.cronJobListerSynced) {
+	klog.Infof("Starting cronjob controller v2")
+	defer klog.Infof("Shutting down CronJob Manager")
+
+	if !cache.WaitForNamedCacheSync("cronjob", stopCh, jm.jobListerSynced, jm.cronJobListerSynced) {
 		return
 	}
 
@@ -129,7 +132,6 @@ func (jm *ControllerV2) Run(workers int, stopCh <-chan struct{}) {
 	}
 
 	<-stopCh
-	klog.Infof("Shutting down CronJob Manager")
 }
 
 func (jm *ControllerV2) worker() {
