@@ -45,25 +45,25 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddConversionFunc((*config.CronJobControllerV2Configuration)(nil), (*v1alpha1.CronJobControllerV2Configuration)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_config_CronJobControllerV2Configuration_To_v1alpha1_CronJobControllerV2Configuration(a.(*config.CronJobControllerV2Configuration), b.(*v1alpha1.CronJobControllerV2Configuration), scope)
+	if err := s.AddConversionFunc((*config.CronJobControllerConfiguration)(nil), (*v1alpha1.CronJobControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_config_CronJobControllerConfiguration_To_v1alpha1_CronJobControllerConfiguration(a.(*config.CronJobControllerConfiguration), b.(*v1alpha1.CronJobControllerConfiguration), scope)
 	}); err != nil {
 		return err
 	}
-	if err := s.AddConversionFunc((*v1alpha1.CronJobControllerV2Configuration)(nil), (*config.CronJobControllerV2Configuration)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1alpha1_CronJobControllerV2Configuration_To_config_CronJobControllerV2Configuration(a.(*v1alpha1.CronJobControllerV2Configuration), b.(*config.CronJobControllerV2Configuration), scope)
+	if err := s.AddConversionFunc((*v1alpha1.CronJobControllerConfiguration)(nil), (*config.CronJobControllerConfiguration)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha1_CronJobControllerConfiguration_To_config_CronJobControllerConfiguration(a.(*v1alpha1.CronJobControllerConfiguration), b.(*config.CronJobControllerConfiguration), scope)
 	}); err != nil {
 		return err
 	}
 	return nil
 }
 
-func autoConvert_v1alpha1_CronJobControllerV2Configuration_To_config_CronJobControllerV2Configuration(in *v1alpha1.CronJobControllerV2Configuration, out *config.CronJobControllerV2Configuration, s conversion.Scope) error {
+func autoConvert_v1alpha1_CronJobControllerConfiguration_To_config_CronJobControllerConfiguration(in *v1alpha1.CronJobControllerConfiguration, out *config.CronJobControllerConfiguration, s conversion.Scope) error {
 	out.ConcurrentCronJobSyncs = in.ConcurrentCronJobSyncs
 	return nil
 }
 
-func autoConvert_config_CronJobControllerV2Configuration_To_v1alpha1_CronJobControllerV2Configuration(in *config.CronJobControllerV2Configuration, out *v1alpha1.CronJobControllerV2Configuration, s conversion.Scope) error {
+func autoConvert_config_CronJobControllerConfiguration_To_v1alpha1_CronJobControllerConfiguration(in *config.CronJobControllerConfiguration, out *v1alpha1.CronJobControllerConfiguration, s conversion.Scope) error {
 	out.ConcurrentCronJobSyncs = in.ConcurrentCronJobSyncs
 	return nil
 }

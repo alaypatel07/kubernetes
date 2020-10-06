@@ -90,9 +90,9 @@ type KubeControllerManagerConfiguration struct {
 	HPAController poautosclerconfig.HPAControllerConfiguration
 	// JobControllerConfiguration holds configuration for JobController related features.
 	JobController jobconfig.JobControllerConfiguration
-	// CronJobControllerV2Configuration holds configuration for CronJobControllerV2
+	// CronJobControllerConfiguration holds configuration for CronJobController
 	// related features.
-	CronJobControllerV2 cronjobconfig.CronJobControllerV2Configuration
+	CronJobController cronjobconfig.CronJobControllerConfiguration
 	// NamespaceControllerConfiguration holds configuration for NamespaceController
 	// related features.
 	NamespaceController namespaceconfig.NamespaceControllerConfiguration

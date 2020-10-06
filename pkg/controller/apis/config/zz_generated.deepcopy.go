@@ -120,7 +120,7 @@ func (in *KubeControllerManagerConfiguration) DeepCopyInto(out *KubeControllerMa
 	in.GarbageCollectorController.DeepCopyInto(&out.GarbageCollectorController)
 	out.HPAController = in.HPAController
 	out.JobController = in.JobController
-	out.CronJobControllerV2 = in.CronJobControllerV2
+	out.CronJobController = in.CronJobController
 	out.NamespaceController = in.NamespaceController
 	out.NodeIPAMController = in.NodeIPAMController
 	out.NodeLifecycleController = in.NodeLifecycleController

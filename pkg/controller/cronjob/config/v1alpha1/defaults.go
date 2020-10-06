@@ -20,8 +20,8 @@ import (
 	kubectrlmgrconfigv1alpha1 "k8s.io/kube-controller-manager/config/v1alpha1"
 )
 
-// RecommendedDefaultCronJobControllerV2Configuration defaults a pointer to a
-// CronJobControllerV2Configuration struct. This will set the recommended default
+// RecommendedDefaultCronJobControllerConfiguration defaults a pointer to a
+// CronJobControllerConfiguration struct. This will set the recommended default
 // values, but they may be subject to change between API versions. This function
 // is intentionally not registered in the scheme as a "normal" `SetDefaults_Foo`
 // function to allow consumers of this type to set whatever defaults for their
@@ -29,7 +29,7 @@ import (
 // as defaulting in the scheme is done as part of the conversion, and there would
 // be no easy way to opt-out. Instead, if you want to use this defaulting method
 // run it in your wrapper struct of this type in its `SetDefaults_` method.
-func RecommendedDefaultCronJobControllerV2Configuration(obj *kubectrlmgrconfigv1alpha1.CronJobControllerV2Configuration) {
+func RecommendedDefaultCronJobControllerConfiguration(obj *kubectrlmgrconfigv1alpha1.CronJobControllerConfiguration) {
 	if obj.ConcurrentCronJobSyncs == 0 {
 		obj.ConcurrentCronJobSyncs = 5
 	}

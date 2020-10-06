@@ -16,9 +16,9 @@ limitations under the License.
 
 package config
 
-// CronJobControllerV2Configuration contains elements describing the
+// CronJobControllerConfiguration contains elements describing the
 // CronJobControllerV2.
-type CronJobControllerV2Configuration struct {
+type CronJobControllerConfiguration struct {
 	// ConcurrentCronJobSyncs is the number of cron job objects that are
 	// allowed to sync concurrently. Larger number = more responsive jobs,
 	// but more CPU (and network) load.

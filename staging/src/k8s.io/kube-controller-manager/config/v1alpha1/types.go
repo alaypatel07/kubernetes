@@ -124,8 +124,8 @@ type KubeControllerManagerConfiguration struct {
 	HPAController HPAControllerConfiguration
 	// JobControllerConfiguration holds configuration for JobController related features.
 	JobController JobControllerConfiguration
-	// CronJobControllerV2Configuration holds configuration for CronJobController related features.
-	CronJobControllerV2 CronJobControllerV2Configuration
+	// CronJobControllerConfiguration holds configuration for CronJobController related features.
+	CronJobController CronJobControllerConfiguration
 	// NamespaceControllerConfiguration holds configuration for NamespaceController
 	// related features.
 	// NamespaceControllerConfiguration holds configuration for NamespaceController
@@ -417,8 +417,8 @@ type JobControllerConfiguration struct {
 	ConcurrentJobSyncs int32
 }
 
-// CronJobControllerV2Configuration contains elements describing CrongJob2Controller.
-type CronJobControllerV2Configuration struct {
+// CronJobControllerConfiguration contains elements describing CrongJob2Controller.
+type CronJobControllerConfiguration struct {
 	// concurrentCronJobSyncs is the number of job objects that are
 	// allowed to sync concurrently. Larger number = more responsive jobs,
 	// but more CPU (and network) load.

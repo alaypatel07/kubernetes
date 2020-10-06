@@ -311,7 +311,7 @@ func autoConvert_v1alpha1_KubeControllerManagerConfiguration_To_config_KubeContr
 	if err := jobconfigv1alpha1.Convert_v1alpha1_JobControllerConfiguration_To_config_JobControllerConfiguration(&in.JobController, &out.JobController, s); err != nil {
 		return err
 	}
-	if err := cronjobconfigv1alpha1.Convert_v1alpha1_CronJobControllerV2Configuration_To_config_CronJobControllerV2Configuration(&in.CronJobControllerV2, &out.CronJobControllerV2, s); err != nil {
+	if err := cronjobconfigv1alpha1.Convert_v1alpha1_CronJobControllerConfiguration_To_config_CronJobControllerConfiguration(&in.CronJobController, &out.CronJobController, s); err != nil {
 		return err
 	}
 	if err := namespaceconfigv1alpha1.Convert_v1alpha1_NamespaceControllerConfiguration_To_config_NamespaceControllerConfiguration(&in.NamespaceController, &out.NamespaceController, s); err != nil {
@@ -398,7 +398,7 @@ func autoConvert_config_KubeControllerManagerConfiguration_To_v1alpha1_KubeContr
 	if err := jobconfigv1alpha1.Convert_config_JobControllerConfiguration_To_v1alpha1_JobControllerConfiguration(&in.JobController, &out.JobController, s); err != nil {
 		return err
 	}
-	if err := cronjobconfigv1alpha1.Convert_config_CronJobControllerV2Configuration_To_v1alpha1_CronJobControllerV2Configuration(&in.CronJobControllerV2, &out.CronJobControllerV2, s); err != nil {
+	if err := cronjobconfigv1alpha1.Convert_config_CronJobControllerConfiguration_To_v1alpha1_CronJobControllerConfiguration(&in.CronJobController, &out.CronJobController, s); err != nil {
 		return err
 	}
 	if err := namespaceconfigv1alpha1.Convert_config_NamespaceControllerConfiguration_To_v1alpha1_NamespaceControllerConfiguration(&in.NamespaceController, &out.NamespaceController, s); err != nil {
