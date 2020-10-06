@@ -17,7 +17,6 @@ go_library(
     ],
     importpath = "k8s.io/kubernetes/pkg/controller/cronjob",
     deps = [
-        "//pkg/apis/batch:go_default_library",
         "//pkg/controller:go_default_library",
         "//staging/src/k8s.io/api/batch/v1:go_default_library",
         "//staging/src/k8s.io/api/batch/v1beta1:go_default_library",
@@ -80,6 +79,9 @@ filegroup(
 
 filegroup(
     name = "all-srcs",
-    srcs = [":package-srcs"],
+    srcs = [
+        ":package-srcs",
+        "//pkg/controller/cronjob/config:all-srcs",
+    ],
     tags = ["automanaged"],
 )
