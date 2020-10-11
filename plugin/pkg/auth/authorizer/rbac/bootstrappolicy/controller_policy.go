@@ -88,31 +88,17 @@ func buildControllerRoles() ([]rbacv1.ClusterRole, []rbacv1.ClusterRoleBinding) 
 			rbacv1helpers.NewRule("escalate", "get", "list", "watch", "update", "patch").Groups(rbacGroup).Resources("clusterroles").RuleOrDie(),
 		},
 	})
-	if utilfeature.DefaultFeatureGate.Enabled(features.CronJobControllerV2) {
-		addControllerRole(&controllerRoles, &controllerRoleBindings, rbacv1.ClusterRole{
-			ObjectMeta: metav1.ObjectMeta{Name: saRolePrefix + "cronjob-controller-v2"},
-			Rules: []rbacv1.PolicyRule{
-				rbacv1helpers.NewRule("get", "list", "watch", "update").Groups(batchGroup).Resources("cronjobs").RuleOrDie(),
-				rbacv1helpers.NewRule("get", "list", "watch", "create", "update", "delete", "patch").Groups(batchGroup).Resources("jobs").RuleOrDie(),
-				rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/status").RuleOrDie(),
-				rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/finalizers").RuleOrDie(),
-				rbacv1helpers.NewRule("list", "delete").Groups(legacyGroup).Resources("pods").RuleOrDie(),
-				eventsRule(),
-			},
-		})
-	} else {
-		addControllerRole(&controllerRoles, &controllerRoleBindings, rbacv1.ClusterRole{
-			ObjectMeta: metav1.ObjectMeta{Name: saRolePrefix + "cronjob-controller"},
-			Rules: []rbacv1.PolicyRule{
-				rbacv1helpers.NewRule("get", "list", "watch", "update").Groups(batchGroup).Resources("cronjobs").RuleOrDie(),
-				rbacv1helpers.NewRule("get", "list", "watch", "create", "update", "delete", "patch").Groups(batchGroup).Resources("jobs").RuleOrDie(),
-				rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/status").RuleOrDie(),
-				rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/finalizers").RuleOrDie(),
-				rbacv1helpers.NewRule("list", "delete").Groups(legacyGroup).Resources("pods").RuleOrDie(),
-				eventsRule(),
-			},
-		})
-	}
+	addControllerRole(&controllerRoles, &controllerRoleBindings, rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{Name: saRolePrefix + "cronjob-controller"},
+		Rules: []rbacv1.PolicyRule{
+			rbacv1helpers.NewRule("get", "list", "watch", "update").Groups(batchGroup).Resources("cronjobs").RuleOrDie(),
+			rbacv1helpers.NewRule("get", "list", "watch", "create", "update", "delete", "patch").Groups(batchGroup).Resources("jobs").RuleOrDie(),
+			rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/status").RuleOrDie(),
+			rbacv1helpers.NewRule("update").Groups(batchGroup).Resources("cronjobs/finalizers").RuleOrDie(),
+			rbacv1helpers.NewRule("list", "delete").Groups(legacyGroup).Resources("pods").RuleOrDie(),
+			eventsRule(),
+		},
+	})
 	addControllerRole(&controllerRoles, &controllerRoleBindings, rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{Name: saRolePrefix + "daemon-set-controller"},
 		Rules: []rbacv1.PolicyRule{

@@ -76,13 +76,13 @@ func NewControllerV2(jobInformer batchv1informers.JobInformer, cronJobsInformer 
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
 
 	if kubeClient != nil && kubeClient.CoreV1().RESTClient().GetRateLimiter() != nil {
-		if err := ratelimiter.RegisterMetricAndTrackRateLimiterUsage("cronjob_controller_v2", kubeClient.CoreV1().RESTClient().GetRateLimiter()); err != nil {
+		if err := ratelimiter.RegisterMetricAndTrackRateLimiterUsage("cronjob_controller", kubeClient.CoreV1().RESTClient().GetRateLimiter()); err != nil {
 			return nil, err
 		}
 	}
 
 	jm := &ControllerV2{
-		queue:    workqueue.NewNamedDelayingQueue("cronjob2"),
+		queue:    workqueue.NewNamedDelayingQueue("cronjob"),
 		recorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cronjob-controller"}),
 
 		jobControl:     realJobControl{KubeClient: kubeClient},
@@ -121,7 +121,7 @@ func (jm *ControllerV2) Run(workers int, stopCh <-chan struct{}) {
 	defer jm.queue.ShutDown()
 
 	klog.Infof("Starting cronjob controller v2")
-	defer klog.Infof("Shutting down CronJob Manager")
+	defer klog.Infof("Shutting down cronjob controller v2")
 
 	if !cache.WaitForNamedCacheSync("cronjob", stopCh, jm.jobListerSynced, jm.cronJobListerSynced) {
 		return

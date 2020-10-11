@@ -50,7 +50,7 @@ func startCronJobController(ctx ControllerContext) (http.Handler, bool, error) {
 	if utilfeature.DefaultFeatureGate.Enabled(kubefeatures.CronJobControllerV2) {
 		cj2c, err := cronjob.NewControllerV2(ctx.InformerFactory.Batch().V1().Jobs(),
 			ctx.InformerFactory.Batch().V1beta1().CronJobs(),
-			ctx.ClientBuilder.ClientOrDie("cronjob-controller-v2"),
+			ctx.ClientBuilder.ClientOrDie("cronjob-controller"),
 		)
 		if err != nil {
 			return nil, true, fmt.Errorf("error creating CronJob controller V2: %v", err)
