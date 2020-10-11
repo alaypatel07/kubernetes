@@ -1,6 +1,8 @@
 package cronjob
 
 import (
+	"fmt"
+	"k8s.io/apimachinery/pkg/labels"
 	"reflect"
 	"strings"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	batchV1beta1 "k8s.io/api/batch/v1beta1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/listers/batch/v1beta1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	// For the cronjob controller to do conversions.
@@ -349,6 +352,99 @@ func TestController2_updateCronJob(t *testing.T) {
 			d := then.Sub(now)
 			if d.Round(tt.roundOffTimeDuration).Seconds() != tt.deltaTimeForQueue.Round(tt.roundOffTimeDuration).Seconds() {
 				t.Errorf("Expected %#v got %#v", tt.deltaTimeForQueue.Round(tt.roundOffTimeDuration).String(), d.Round(tt.roundOffTimeDuration).String())
+			}
+		})
+	}
+}
+
+type FakeCronJobLister struct {
+	cronjobs   []*batchV1beta1.CronJob
+	errCount   int
+	listCalled int
+}
+
+func (f FakeCronJobLister) List(selector labels.Selector) ([]*batchV1beta1.CronJob, error) {
+	if f.listCalled <= f.errCount {
+		return nil, fmt.Errorf("fake error")
+	}
+	ret := []*batchV1beta1.CronJob{}
+	for _, cj := range f.cronjobs {
+		if selector.Matches(labels.Set(cj.GetLabels())) {
+			ret = append(ret, cj)
+		}
+	}
+	return ret, nil
+}
+
+func (f FakeCronJobLister) CronJobs(namespace string) v1beta1.CronJobNamespaceLister {
+	panic("implement me")
+}
+
+func TestControllerV2_enqueueAllExistingCronJobsWithRetries(t *testing.T) {
+	type fields struct {
+		queue         workqueue.DelayingInterface
+		cronJobLister FakeCronJobLister
+	}
+	type args struct {
+		retries int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		error  bool
+	}{
+		{
+			name: "test without errors",
+			fields: fields{cronJobLister: FakeCronJobLister{
+				cronjobs: []*batchV1beta1.CronJob{
+					&batchV1beta1.CronJob{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "bar",
+							Name:      "foo",
+						},
+					},
+				},
+				errCount:   -1,
+				listCalled: 0,
+			},
+				queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "test-enqueue-all"),
+			},
+			args:  args{retries: 5},
+			error: false,
+		},
+		{
+			name: "test without errors",
+			fields: fields{cronJobLister: FakeCronJobLister{
+				cronjobs: []*batchV1beta1.CronJob{
+					&batchV1beta1.CronJob{
+						ObjectMeta: metav1.ObjectMeta{
+							Namespace: "bar",
+							Name:      "foo",
+						},
+					},
+				},
+				errCount:   6,
+				listCalled: 0,
+			},
+				queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "test-enqueue-all"),
+			},
+			args:  args{retries: 5},
+			error: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jm := &ControllerV2{
+				queue:         tt.fields.queue,
+				cronJobLister: tt.fields.cronJobLister,
+			}
+			jm.enqueueAllCronJobsWithRetries(tt.args.retries)
+			if !tt.error && jm.queue.Len() != len(tt.fields.cronJobLister.cronjobs) {
+				t.Errorf("expected %d, got %d\n", len(tt.fields.cronJobLister.cronjobs), jm.queue.Len())
+			}
+			if tt.error && jm.queue.Len() != 0 {
+				t.Errorf("expected 0, got %d", jm.queue.Len())
 			}
 		})
 	}

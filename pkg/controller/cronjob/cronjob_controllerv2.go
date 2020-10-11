@@ -123,6 +123,8 @@ func (jm *ControllerV2) Run(workers int, stopCh <-chan struct{}) {
 	klog.Infof("Starting cronjob controller v2")
 	defer klog.Infof("Shutting down cronjob controller v2")
 
+	go jm.enqueueAllCronJobsWithRetries(5)
+
 	if !cache.WaitForNamedCacheSync("cronjob", stopCh, jm.jobListerSynced, jm.cronJobListerSynced) {
 		return
 	}
@@ -132,6 +134,29 @@ func (jm *ControllerV2) Run(workers int, stopCh <-chan struct{}) {
 	}
 
 	<-stopCh
+}
+
+// enqueueAllCronJobsWithRetries enqueues all the cronjobs and is thread-safe.
+func (jm *ControllerV2) enqueueAllCronJobsWithRetries(retries int) {
+	cronjobs := jm.listCronJobsWithRetries(retries)
+	for _, cronjob := range cronjobs {
+		jm.enqueueController(cronjob)
+	}
+	return
+}
+
+// listCronJobsWithRetries tries to list the cronjobs with retries upon hitting an error
+func (jm *ControllerV2) listCronJobsWithRetries(retries int) []*batchv1beta1.CronJob {
+	cronjobs := []*batchv1beta1.CronJob{}
+	var err error
+	for i := 0; i < retries; i++ {
+		cronjobs, err = jm.cronJobLister.List(labels.Everything())
+		if err != nil {
+			utilruntime.HandleError(fmt.Errorf("unable to list cronjobs at the start of cronjob controller, retrying %d more time/s, error: %v\n", retries-i-1, err))
+			continue
+		}
+	}
+	return cronjobs
 }
 
 func (jm *ControllerV2) worker() {
