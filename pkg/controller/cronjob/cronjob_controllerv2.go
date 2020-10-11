@@ -168,7 +168,7 @@ func (jm *ControllerV2) sync(cronJobKey string) (error, *time.Duration) {
 	switch {
 	case errors.IsNotFound(err):
 		// may be cronjob is deleted, dont need to requeue this key
-		klog.V(2).InfoS("cronjob %s not found, may be it is deleted", "cronjob", klog.KRef(ns, name), "err", err)
+		klog.V(2).InfoS("cronjob not found, may be it is deleted", "cronjob", klog.KRef(ns, name), "err", err)
 		return nil, nil
 	case err != nil:
 		// for other transient apiserver error requeue with exponential backoff
@@ -443,7 +443,7 @@ func syncOne2(
 	}
 
 	if cj.Spec.Suspend != nil && *cj.Spec.Suspend {
-		klog.V(4).InfoS("Not starting job for %s because it is suspended", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
+		klog.V(4).InfoS("Not starting job because the cron is suspended", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
 		return nil, nil
 	}
 
@@ -527,7 +527,7 @@ func syncOne2(
 		// TODO: for Forbid, we could use the same name for every execution, as a lock.
 		// With replace, we could use a name that is deterministic per execution time.
 		// But that would mean that you could not inspect prior successes or failures of Forbid jobs.
-		klog.V(4).InfoS("Not starting job for %s because of prior execution still running and concurrency policy is Forbid", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
+		klog.V(4).InfoS("Not starting job because prior execution is still running and concurrency policy is Forbid", "cronjob", klog.KRef(cj.GetNamespace(), cj.GetName()))
 		t := nextScheduledTimeDurationWithDelta(sched, now)
 		return nil, t
 	}
