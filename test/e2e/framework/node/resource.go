@@ -191,7 +191,7 @@ func Filter(nodeList *v1.NodeList, fn func(node v1.Node) bool) {
 	nodeList.Items = l
 }
 
-// TotalRegistered returns number of registered Nodes excluding Master Node.
+// TotalRegistered returns number of schedulable Nodes.
 func TotalRegistered(c clientset.Interface) (int, error) {
 	nodes, err := waitListSchedulableNodes(c)
 	if err != nil {
@@ -201,7 +201,7 @@ func TotalRegistered(c clientset.Interface) (int, error) {
 	return len(nodes.Items), nil
 }
 
-// TotalReady returns number of ready Nodes excluding Master Node.
+// TotalReady returns number of ready schedulable Nodes.
 func TotalReady(c clientset.Interface) (int, error) {
 	nodes, err := waitListSchedulableNodes(c)
 	if err != nil {
@@ -518,11 +518,11 @@ func GetClusterZones(c clientset.Interface) (sets.String, error) {
 	// collect values of zone label from all nodes
 	zones := sets.NewString()
 	for _, node := range nodes.Items {
-		if zone, found := node.Labels[v1.LabelZoneFailureDomain]; found {
+		if zone, found := node.Labels[v1.LabelFailureDomainBetaZone]; found {
 			zones.Insert(zone)
 		}
 
-		if zone, found := node.Labels[v1.LabelZoneFailureDomainStable]; found {
+		if zone, found := node.Labels[v1.LabelTopologyZone]; found {
 			zones.Insert(zone)
 		}
 	}

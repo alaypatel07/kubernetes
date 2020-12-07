@@ -130,7 +130,6 @@ func TestSchedulerCreationFromConfigMap(t *testing.T) {
 				"PreScorePlugin": {
 					{Name: "PodTopologySpread"},
 					{Name: "InterPodAffinity"},
-					{Name: "SelectorSpread"},
 					{Name: "TaintToleration"},
 				},
 				"ScorePlugin": {
@@ -141,7 +140,6 @@ func TestSchedulerCreationFromConfigMap(t *testing.T) {
 					{Name: "NodeResourcesLeastAllocated", Weight: 1},
 					{Name: "NodeAffinity", Weight: 1},
 					{Name: "NodePreferAvoidPods", Weight: 10000},
-					{Name: "SelectorSpread", Weight: 1},
 					{Name: "TaintToleration", Weight: 1},
 				},
 				"ReservePlugin": {{Name: "VolumeBinding"}},
@@ -223,7 +221,6 @@ kind: Policy
 				"PreScorePlugin": {
 					{Name: "PodTopologySpread"},
 					{Name: "InterPodAffinity"},
-					{Name: "SelectorSpread"},
 					{Name: "TaintToleration"},
 				},
 				"ScorePlugin": {
@@ -234,7 +231,6 @@ kind: Policy
 					{Name: "NodeResourcesLeastAllocated", Weight: 1},
 					{Name: "NodeAffinity", Weight: 1},
 					{Name: "NodePreferAvoidPods", Weight: 10000},
-					{Name: "SelectorSpread", Weight: 1},
 					{Name: "TaintToleration", Weight: 1},
 				},
 				"ReservePlugin": {{Name: "VolumeBinding"}},
@@ -431,7 +427,7 @@ func TestUnschedulableNodes(t *testing.T) {
 	}
 
 	for i, mod := range nodeModifications {
-		unSchedNode, err := testCtx.ClientSet.CoreV1().Nodes().Create(context.TODO(), node, metav1.CreateOptions{})
+		unSchedNode, err := createNode(testCtx.ClientSet, node)
 		if err != nil {
 			t.Fatalf("Failed to create node: %v", err)
 		}
@@ -514,7 +510,7 @@ func TestMultipleSchedulers(t *testing.T) {
 			},
 		},
 	}
-	testCtx.ClientSet.CoreV1().Nodes().Create(context.TODO(), node, metav1.CreateOptions{})
+	createNode(testCtx.ClientSet, node)
 
 	// 3. create 3 pods for testing
 	t.Logf("create 3 pods for testing")
@@ -639,7 +635,7 @@ func TestMultipleSchedulingProfiles(t *testing.T) {
 			},
 		},
 	}
-	if _, err := testCtx.ClientSet.CoreV1().Nodes().Create(context.TODO(), node, metav1.CreateOptions{}); err != nil {
+	if _, err := createNode(testCtx.ClientSet, node); err != nil {
 		t.Fatal(err)
 	}
 
@@ -828,6 +824,10 @@ func TestSchedulerInformers(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Error creating node %v: %v", nodeConf.name, err)
 				}
+			}
+			// Ensure nodes are present in scheduler cache.
+			if err := waitForNodesInCache(testCtx.Scheduler, len(test.nodes)); err != nil {
+				t.Fatal(err)
 			}
 
 			pods := make([]*v1.Pod, len(test.existingPods))

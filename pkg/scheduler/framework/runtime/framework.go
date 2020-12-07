@@ -33,7 +33,7 @@ import (
 	"k8s.io/kube-scheduler/config/v1beta1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
-	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/internal/parallelize"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 )
@@ -1026,4 +1026,9 @@ func (f *frameworkImpl) pluginsNeeded(plugins *config.Plugins) map[string]config
 // PreemptHandle returns the internal preemptHandle object.
 func (f *frameworkImpl) PreemptHandle() framework.PreemptHandle {
 	return f.preemptHandle
+}
+
+// ProfileName returns the profile name associated to this framework.
+func (f *frameworkImpl) ProfileName() string {
+	return f.profileName
 }

@@ -182,12 +182,12 @@ rules:
       - k8s.io/kubernetes/pkg/registry/core/service/allocator
       - k8s.io/kubernetes/pkg/registry/core/service/portallocator
       - k8s.io/kubernetes/pkg/scheduler/api
+      - k8s.io/kubernetes/pkg/scheduler/framework
       - k8s.io/kubernetes/pkg/scheduler/framework/plugins/helper
       - k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity
       - k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodename
       - k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports
       - k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources
-      - k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1
       - k8s.io/kubernetes/pkg/scheduler/framework/runtime
       - k8s.io/kubernetes/pkg/scheduler/internal/parallelize
       - k8s.io/kubernetes/pkg/scheduler/listers

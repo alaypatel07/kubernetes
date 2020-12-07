@@ -18,6 +18,7 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -44,7 +45,6 @@ import (
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	e2essh "k8s.io/kubernetes/test/e2e/framework/ssh"
-	testutils "k8s.io/kubernetes/test/utils"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 )
 
@@ -380,17 +380,20 @@ func (config *NetworkingTestConfig) GetHTTPCodeFromTestContainer(path, targetIP 
 	return code, nil
 }
 
-// DialFromNode executes a tcp or udp request based on protocol via kubectl exec
+// DialFromNode executes a tcp/udp curl/nc request based on protocol via kubectl exec
 // in a test container running with host networking.
-// - minTries is the minimum number of curl attempts required before declaring
-//   success. Set to 0 if you'd like to return as soon as all endpoints respond
-//   at least once.
-// - maxTries is the maximum number of curl attempts. If this many attempts pass
-//   and we don't see all expected endpoints, the test fails.
-// maxTries == minTries will confirm that we see the expected endpoints and no
-// more for maxTries. Use this if you want to eg: fail a readiness check on a
-// pod and confirm it doesn't show up as an endpoint.
-func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targetPort, maxTries, minTries int, expectedEps sets.String) {
+// - minTries is the minimum number of curl/nc attempts required before declaring
+//   success. If 0, then we return as soon as all endpoints succeed.
+// - There is no logical change to test results if faillures happen AFTER endpoints have succeeded,
+//   hence over-padding minTries will NOT reverse a successful result and is thus not very useful yet
+//   (See the TODO about checking probability, which isnt implemented yet).
+// - maxTries is the maximum number of curl/echo attempts before an error is returned.  The
+//   smaller this number is, the less 'slack' there is for declaring success.
+// - if maxTries < expectedEps, this test is guaranteed to return an error, because all endpoints wont be hit.
+// - maxTries == minTries will return as soon as all endpoints succeed (or fail once maxTries is reached without
+//   success on all endpoints).
+//   In general its prudent to have a high enough level of minTries to guarantee that all pods get a fair chance at receiving traffic.
+func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targetPort, maxTries, minTries int, expectedEps sets.String) error {
 	var cmd string
 	if protocol == "udp" {
 		cmd = fmt.Sprintf("echo hostName | nc -w 1 -u %s %d", targetIP, targetPort)
@@ -408,6 +411,7 @@ func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targ
 	eps := sets.NewString()
 
 	filterCmd := fmt.Sprintf("%s | grep -v '^\\s*$'", cmd)
+	framework.Logf("Going to poll %v on port %v at least %v times, with a maximum of %v tries before failing", targetIP, targetPort, minTries, maxTries)
 	for i := 0; i < maxTries; i++ {
 		stdout, stderr, err := config.f.ExecShellInPodWithFullOutput(config.HostTestContainerPod.Name, filterCmd)
 		if err != nil || len(stderr) > 0 {
@@ -424,8 +428,8 @@ func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targ
 
 		// Check against i+1 so we exit if minTries == maxTries.
 		if eps.Equal(expectedEps) && i+1 >= minTries {
-			framework.Logf("Found all expected endpoints: %+v", eps.List())
-			return
+			framework.Logf("Found all %d expected endpoints: %+v", eps.Len(), eps.List())
+			return nil
 		}
 
 		framework.Logf("Waiting for %+v endpoints (expected=%+v, actual=%+v)", expectedEps.Difference(eps).List(), expectedEps.List(), eps.List())
@@ -435,7 +439,7 @@ func (config *NetworkingTestConfig) DialFromNode(protocol, targetIP string, targ
 	}
 
 	config.diagnoseMissingEndpoints(eps)
-	framework.Failf("Failed to find expected endpoints:\nTries %d\nCommand %v\nretrieved %v\nexpected %v\n", maxTries, cmd, eps, expectedEps)
+	return fmt.Errorf("failed to find expected endpoints, \ntries %d\nCommand %v\nretrieved %v\nexpected %v", maxTries, cmd, eps, expectedEps)
 }
 
 // GetSelfURL executes a curl against the given path via kubectl exec into a
@@ -682,6 +686,9 @@ func (config *NetworkingTestConfig) setupCore(selector map[string]string) {
 	config.createTestPods()
 
 	epCount := len(config.EndpointPods)
+
+	// Note that this is not O(n^2) in practice, because epCount SHOULD be < 10.  In cases that epCount is > 10, this would be prohibitively large.
+	// Check maxNetProxyPodsCount for details.
 	config.MaxTries = epCount*epCount + testTries
 	framework.Logf("Setting MaxTries for pod polling to %v for networking test based on endpoint count %v", config.MaxTries, epCount)
 }
@@ -799,6 +806,7 @@ type HTTPPokeParams struct {
 	ExpectCode     int // default = 200
 	BodyContains   string
 	RetriableCodes []int
+	EnableHTTPS    bool
 }
 
 // HTTPPokeResult is a struct for HTTP poke result.
@@ -845,8 +853,18 @@ const (
 // The result body will be populated if the HTTP transaction was completed, even
 // if the other test params make this a failure).
 func PokeHTTP(host string, port int, path string, params *HTTPPokeParams) HTTPPokeResult {
+	// Set default params.
+	if params == nil {
+		params = &HTTPPokeParams{}
+	}
+
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	url := fmt.Sprintf("http://%s%s", hostPort, path)
+	var url string
+	if params.EnableHTTPS {
+		url = fmt.Sprintf("https://%s%s", hostPort, path)
+	} else {
+		url = fmt.Sprintf("http://%s%s", hostPort, path)
+	}
 
 	ret := HTTPPokeResult{}
 
@@ -861,10 +879,6 @@ func PokeHTTP(host string, port int, path string, params *HTTPPokeParams) HTTPPo
 		return ret
 	}
 
-	// Set default params.
-	if params == nil {
-		params = &HTTPPokeParams{}
-	}
 	if params.ExpectCode == 0 {
 		params.ExpectCode = http.StatusOK
 	}
@@ -931,6 +945,7 @@ func PokeHTTP(host string, port int, path string, params *HTTPPokeParams) HTTPPo
 func httpGetNoConnectionPoolTimeout(url string, timeout time.Duration) (*http.Response, error) {
 	tr := utilnet.SetTransportDefaults(&http.Transport{
 		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
 	})
 	client := &http.Client{
 		Transport: tr,
@@ -1046,7 +1061,7 @@ func WaitForService(c clientset.Interface, namespace, name string, exist bool, i
 		case apierrors.IsNotFound(err):
 			framework.Logf("Service %s in namespace %s disappeared.", name, namespace)
 			return !exist, nil
-		case !testutils.IsRetryableAPIError(err):
+		case err != nil:
 			framework.Logf("Non-retryable failure while getting service.")
 			return false, err
 		default:

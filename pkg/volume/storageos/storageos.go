@@ -402,7 +402,7 @@ func (b *storageosMounter) SetUpAt(dir string, mounterArgs volume.MounterArgs) e
 	globalPDPath := makeGlobalPDName(b.plugin.host, b.pvName, b.volNamespace, b.volName)
 	klog.V(4).Infof("Attempting to bind mount to pod volume at %s", dir)
 
-	err = b.mounter.Mount(globalPDPath, dir, "", mountOptions)
+	err = b.mounter.MountSensitiveWithoutSystemd(globalPDPath, dir, "", mountOptions, nil)
 	if err != nil {
 		notMnt, mntErr := b.mounter.IsLikelyNotMountPoint(dir)
 		if mntErr != nil {
@@ -430,7 +430,7 @@ func (b *storageosMounter) SetUpAt(dir string, mounterArgs volume.MounterArgs) e
 	}
 
 	if !b.readOnly {
-		volume.SetVolumeOwnership(b, mounterArgs.FsGroup, mounterArgs.FSGroupChangePolicy)
+		volume.SetVolumeOwnership(b, mounterArgs.FsGroup, mounterArgs.FSGroupChangePolicy, util.FSGroupCompleteHook(b.plugin, nil))
 	}
 	klog.V(4).Infof("StorageOS volume setup complete on %s", dir)
 	return nil
