@@ -290,6 +290,7 @@ func TestSyncOne_RunOrNot(t *testing.T) {
 			cjc := &fakeCJControl{}
 			recorder := record.NewFakeRecorder(10)
 
+			// TODO: @alpatel modify the test cases to handle refactor
 			syncOne(&cj, js, tc.now, jc, cjc, recorder)
 			expectedCreates := 0
 			if tc.expectCreate {
@@ -726,6 +727,7 @@ func TestSyncOne_Status(t *testing.T) {
 			recorder := record.NewFakeRecorder(10)
 
 			// Run the code
+			// TODO: @alpatel modify the test cases to handle refactor
 			syncOne(&cj, jobs, tc.now, jc, cjc, recorder)
 
 			// Status update happens once when ranging through job list, and another one if create jobs.

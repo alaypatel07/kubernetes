@@ -117,6 +117,7 @@ func getRecentUnmetScheduleTimes(cj batchv1beta1.CronJob, now time.Time) ([]time
 		}
 	}
 	if earliestTime.After(now) {
+		// TODO: @alpatel may be requeue this key after earliestTime - now
 		return []time.Time{}, nil
 	}
 
