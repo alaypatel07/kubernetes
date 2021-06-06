@@ -51,12 +51,7 @@ func startCronJobController(ctx ControllerContext) (http.Handler, bool, error) {
 		go cj2c.Run(int(ctx.ComponentConfig.CronJobController.ConcurrentCronJobSyncs), ctx.Stop)
 		return nil, true, nil
 	}
-	cjc, err := cronjob.NewController(
-		ctx.ClientBuilder.ClientOrDie("cronjob-controller"),
-	)
-	if err != nil {
-		return nil, true, fmt.Errorf("error creating CronJob controller: %v", err)
-	}
-	go cjc.Run(ctx.Stop)
-	return nil, true, nil
+
+	// TODO: rename CronJobControllerV2 to CronJobController in 1.23, i.e one release after V2 GA
+	return nil, true, fmt.Errorf("error creating CronJobController, it is now depracated in favor of CronJobControllerV2")
 }
