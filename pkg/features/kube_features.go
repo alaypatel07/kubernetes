@@ -990,6 +990,14 @@ const (
 	// operation when scheduling a Pod by setting the `metadata.labels` field on the submitted Binding,
 	// similar to how `metadata.annotations` behaves.
 	PodTopologyLabelsAdmission featuregate.Feature = "PodTopologyLabelsAdmission"
+
+	// owner: @your-github-username
+	// alpha: v1.33
+	//
+	// Enables quota enforcement for DRA resources at allocation time in kube-scheduler
+	// instead of at admission time. This provides more accurate quota tracking
+	// based on actual resource allocation decisions.
+	DRAQuotaAtAllocationTime featuregate.Feature = "DRAQuotaAtAllocationTime"
 )
 
 // defaultVersionedKubernetesFeatureGates consists of all known Kubernetes-specific feature keys with VersionedSpecs.
@@ -1146,6 +1154,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 	},
 
 	DRADeviceTaints: {
+		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DRAQuotaAtAllocationTime: {
 		{Version: version.MustParse("1.33"), Default: false, PreRelease: featuregate.Alpha},
 	},
 

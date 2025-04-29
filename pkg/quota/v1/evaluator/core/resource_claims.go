@@ -28,8 +28,10 @@ import (
 	"k8s.io/apiserver/pkg/admission"
 	quota "k8s.io/apiserver/pkg/quota/v1"
 	"k8s.io/apiserver/pkg/quota/v1/generic"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	resourceinternal "k8s.io/kubernetes/pkg/apis/resource"
 	resourceversioned "k8s.io/kubernetes/pkg/apis/resource/v1beta1"
+	"k8s.io/kubernetes/pkg/features"
 )
 
 // The name used for object count quota. This evaluator takes over counting
@@ -72,7 +74,14 @@ func (p *claimEvaluator) Handles(a admission.Attributes) bool {
 		return false
 	}
 	op := a.GetOperation()
-	return admission.Create == op || admission.Update == op
+	if admission.Create == op || admission.Update == op {
+		// Check if DRAQuotaAtAllocationTime feature gate is enabled using the registry flag
+		if utilfeature.DefaultFeatureGate.Enabled(features.DRAQuotaAtAllocationTime) {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 // Matches returns true if the evaluator matches the specified quota with the provided input item

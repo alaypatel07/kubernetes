@@ -24,6 +24,7 @@ type Features struct {
 	EnableDRAAdminAccess                         bool
 	EnableDRADeviceTaints                        bool
 	EnableDynamicResourceAllocation              bool
+	EnableDRAQuotaAtAllocationTime               bool
 	EnableVolumeAttributesClass                  bool
 	EnableCSIMigrationPortworx                   bool
 	EnableNodeInclusionPolicyInPodTopologySpread bool

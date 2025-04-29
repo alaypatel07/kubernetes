@@ -102,17 +102,21 @@ type informationForClaim struct {
 
 // DynamicResources is a plugin that ensures that ResourceClaims are allocated.
 type DynamicResources struct {
-	enabled                    bool
-	enableAdminAccess          bool
-	enablePrioritizedList      bool
-	enableSchedulingQueueHint  bool
-	enablePartitionableDevices bool
-	enableDeviceTaints         bool
+	enabled                     bool
+	enableAdminAccess           bool
+	enablePrioritizedList       bool
+	enableSchedulingQueueHint   bool
+	enablePartitionableDevices  bool
+	enableDeviceTaints          bool
+	enableQuotaAtAllocationTime bool
 
 	fh         framework.Handle
 	clientset  kubernetes.Interface
 	celCache   *cel.Cache
 	draManager framework.SharedDRAManager
+
+	// quotaTracker manages quota at allocation time
+	quotaTracker *QuotaTracker
 }
 
 // New initializes a new plugin and returns it.
@@ -123,20 +127,22 @@ func New(ctx context.Context, plArgs runtime.Object, fh framework.Handle, fts fe
 	}
 
 	pl := &DynamicResources{
-		enabled:                    true,
-		enableAdminAccess:          fts.EnableDRAAdminAccess,
-		enableDeviceTaints:         fts.EnableDRADeviceTaints,
-		enablePrioritizedList:      fts.EnableDRAPrioritizedList,
-		enableSchedulingQueueHint:  fts.EnableSchedulingQueueHint,
-		enablePartitionableDevices: fts.EnablePartitionableDevices,
+		enabled:                     true,
+		enableAdminAccess:           fts.EnableDRAAdminAccess,
+		enableDeviceTaints:          fts.EnableDRADeviceTaints,
+		enablePrioritizedList:       fts.EnableDRAPrioritizedList,
+		enableSchedulingQueueHint:   fts.EnableSchedulingQueueHint,
+		enablePartitionableDevices:  fts.EnablePartitionableDevices,
+		enableQuotaAtAllocationTime: fts.EnableDRAQuotaAtAllocationTime,
 
 		fh:        fh,
 		clientset: fh.ClientSet(),
 		// This is a LRU cache for compiled CEL expressions. The most
 		// recent 10 of them get reused across different scheduling
 		// cycles.
-		celCache:   cel.NewCache(10),
-		draManager: fh.SharedDRAManager(),
+		celCache:     cel.NewCache(10),
+		draManager:   fh.SharedDRAManager(),
+		quotaTracker: NewQuotaTracker(),
 	}
 
 	return pl, nil
@@ -675,7 +681,7 @@ func (pl *DynamicResources) Reserve(ctx context.Context, cs *framework.CycleStat
 		return nil
 	}
 
-	// Prepare allocation of claims handled by the schedulder.
+	// Prepare allocation of claims handled by the scheduler.
 	if state.allocator != nil {
 		// Entries in these two slices match each other.
 		claimsToAllocate := state.allocator.ClaimsToAllocate()
@@ -690,6 +696,18 @@ func (pl *DynamicResources) Reserve(ctx context.Context, cs *framework.CycleStat
 		if len(allocations) != len(claimsToAllocate) ||
 			len(allocations) != numClaimsWithAllocator {
 			return statusError(logger, fmt.Errorf("internal error, have %d allocations, %d claims to allocate, want %d claims", len(allocations), len(claimsToAllocate), numClaimsWithAllocator))
+		}
+
+		// Check quota if enabled
+		if pl.enableQuotaAtAllocationTime {
+			// We need to check quota for all the claims that will be allocated
+			for i, claim := range claimsToAllocate {
+				allocation := &allocations[i]
+				err := pl.checkQuota(ctx, claim.Namespace, allocation)
+				if err != nil {
+					return statusError(logger, fmt.Errorf("quota check failed for claim %s: %w", klog.KObj(claim), err))
+				}
+			}
 		}
 
 		for i, claim := range claimsToAllocate {
@@ -713,10 +731,35 @@ func (pl *DynamicResources) Reserve(ctx context.Context, cs *framework.CycleStat
 				return statusError(logger, fmt.Errorf("internal error, couldn't signal allocation for claim %s", claim.Name))
 			}
 			logger.V(5).Info("Reserved resource in allocation result", "claim", klog.KObj(claim), "allocation", klog.Format(allocation))
+
+			// Record allocation in quota tracker if enabled
+			if pl.enableQuotaAtAllocationTime {
+				pl.quotaTracker.RecordAllocation(claim.Namespace, claim.UID, allocation)
+			}
 		}
 	}
 
 	return nil
+}
+
+// checkQuota checks if the allocation would exceed quota limits.
+// It loads quota information if needed.
+func (pl *DynamicResources) checkQuota(ctx context.Context, namespace string, allocation *resourceapi.AllocationResult) error {
+	logger := klog.FromContext(ctx)
+
+	// Try to get ResourceQuota objects for the namespace
+	quotaList, err := pl.clientset.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		logger.Error(err, "Failed to get resource quotas", "namespace", namespace)
+		// Don't fail scheduling if we can't get quota information
+		return nil
+	}
+
+	// Update quota limits in the tracker
+	pl.quotaTracker.UpdateQuotas(namespace, *quotaList)
+
+	// Now check if this allocation would exceed quota
+	return pl.quotaTracker.CanAllocate(ctx, namespace, allocation)
 }
 
 // Unreserve clears the ReservedFor field for all claims.
@@ -740,6 +783,11 @@ func (pl *DynamicResources) Unreserve(ctx context.Context, cs *framework.CycleSt
 		// claim object in the assume cache to what it was before.
 		if deleted := pl.draManager.ResourceClaims().RemoveClaimPendingAllocation(state.claims[index].UID); deleted {
 			pl.draManager.ResourceClaims().AssumedClaimRestore(claim.Namespace, claim.Name)
+
+			// If quota tracking at allocation time is enabled, remove the allocation
+			if pl.enableQuotaAtAllocationTime {
+				pl.quotaTracker.RemoveAllocation(claim.Namespace, claim.UID)
+			}
 		}
 
 		if claim.Status.Allocation != nil &&
