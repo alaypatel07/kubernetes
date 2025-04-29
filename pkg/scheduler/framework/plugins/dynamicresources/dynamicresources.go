@@ -757,6 +757,7 @@ func (pl *DynamicResources) checkQuota(ctx context.Context, namespace string, al
 
 	// Update quota limits in the tracker
 	pl.quotaTracker.UpdateQuotas(namespace, *quotaList)
+	logger.V(2).Info("Done checking quota", "namespace", namespace, "quotaList", quotaList)
 
 	// Now check if this allocation would exceed quota
 	return pl.quotaTracker.CanAllocate(ctx, namespace, allocation)

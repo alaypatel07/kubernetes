@@ -19,6 +19,7 @@ package dynamicresources
 import (
 	"context"
 	"fmt"
+	"k8s.io/klog/v2"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -83,11 +84,14 @@ func DeviceUsageFromAllocation(allocation *resourceapi.AllocationResult) map[cor
 func (t *QuotaTracker) CanAllocate(ctx context.Context, namespace string, allocation *resourceapi.AllocationResult) error {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
+	logger := klog.FromContext(ctx)
 
 	usage := DeviceUsageFromAllocation(allocation)
 	if len(usage) == 0 {
 		return nil // No device allocation, nothing to check
 	}
+
+	logger.V(2).Info("Usage from allocation", "namespace", namespace, "allocation", allocation, "usage", usage)
 
 	// Get current namespace usage
 	nsUsage, nsExists := t.usagePerNamespace[namespace]
