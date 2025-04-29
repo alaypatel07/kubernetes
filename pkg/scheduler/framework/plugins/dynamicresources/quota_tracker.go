@@ -19,13 +19,16 @@ package dynamicresources
 import (
 	"context"
 	"fmt"
-	"k8s.io/klog/v2"
 	"sync"
+
+	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	quotacore "k8s.io/kubernetes/pkg/quota/v1/evaluator/core"
 )
 
@@ -133,9 +136,10 @@ func (t *QuotaTracker) CanAllocate(ctx context.Context, namespace string, alloca
 }
 
 // RecordAllocation records a successful allocation for quota tracking.
-func (t *QuotaTracker) RecordAllocation(namespace string, claimUID types.UID, allocation *resourceapi.AllocationResult) {
+func (t *QuotaTracker) RecordAllocation(ctx context.Context, clientset kubernetes.Interface, namespace string, claimUID types.UID, allocation *resourceapi.AllocationResult) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
+	logger := klog.FromContext(ctx)
 
 	usage := DeviceUsageFromAllocation(allocation)
 	if len(usage) == 0 {
@@ -162,10 +166,16 @@ func (t *QuotaTracker) RecordAllocation(namespace string, claimUID types.UID, al
 
 	// Track the allocation for potential cleanup later
 	t.claimAllocations[claimUID] = *allocation
+
+	// Update ResourceQuota status
+	if err := t.UpdateResourceQuotaStatus(ctx, clientset, namespace); err != nil {
+		logger.Error(err, "Failed to update ResourceQuota status", "namespace", namespace)
+		// Don't fail scheduling if we can't update quota status
+	}
 }
 
 // RemoveAllocation removes an allocation when a claim is deleted or deallocated.
-func (t *QuotaTracker) RemoveAllocation(namespace string, claimUID types.UID) {
+func (t *QuotaTracker) RemoveAllocation(ctx context.Context, clientset kubernetes.Interface, namespace string, claimUID types.UID) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -211,6 +221,11 @@ func (t *QuotaTracker) RemoveAllocation(namespace string, claimUID types.UID) {
 
 	// Remove the claim allocation tracking
 	delete(t.claimAllocations, claimUID)
+
+	// Update ResourceQuota status
+	if err := t.UpdateResourceQuotaStatus(ctx, clientset, namespace); err != nil {
+		klog.FromContext(ctx).Error(err, "Failed to update ResourceQuota status", "namespace", namespace)
+	}
 }
 
 // UpdateQuotas updates the quota limits for a namespace.
@@ -277,4 +292,50 @@ func (t *QuotaTracker) GetUsage(namespace string) map[corev1.ResourceName]*resou
 	}
 
 	return result
+}
+
+// UpdateResourceQuotaStatus updates the ResourceQuota status to reflect current allocation usage
+func (t *QuotaTracker) UpdateResourceQuotaStatus(ctx context.Context, clientset kubernetes.Interface, namespace string) error {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	// Get current usage for namespace
+	nsUsage, exists := t.usagePerNamespace[namespace]
+	if !exists {
+		return nil
+	}
+
+	// Get all ResourceQuotas in namespace
+	quotaList, err := clientset.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list ResourceQuotas: %w", err)
+	}
+
+	// Update status of each ResourceQuota
+	for _, quota := range quotaList.Items {
+		statusUpdated := false
+		quotaCopy := quota.DeepCopy()
+
+		if quotaCopy.Status.Used == nil {
+			quotaCopy.Status.Used = corev1.ResourceList{}
+		}
+
+		// Update each tracked resource's usage
+		for resourceName, usage := range nsUsage {
+			if _, exists := quotaCopy.Spec.Hard[resourceName]; exists {
+				statusUpdated = true
+				quotaCopy.Status.Used[resourceName] = usage.DeepCopy()
+			}
+		}
+
+		// Only update if there were changes
+		if statusUpdated {
+			_, err = clientset.CoreV1().ResourceQuotas(namespace).UpdateStatus(ctx, quotaCopy, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update ResourceQuota status for %s: %w", quota.Name, err)
+			}
+		}
+	}
+
+	return nil
 }

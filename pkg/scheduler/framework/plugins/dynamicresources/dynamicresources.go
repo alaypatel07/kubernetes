@@ -734,7 +734,7 @@ func (pl *DynamicResources) Reserve(ctx context.Context, cs *framework.CycleStat
 
 			// Record allocation in quota tracker if enabled
 			if pl.enableQuotaAtAllocationTime {
-				pl.quotaTracker.RecordAllocation(claim.Namespace, claim.UID, allocation)
+				pl.quotaTracker.RecordAllocation(ctx, pl.clientset, claim.Namespace, claim.UID, allocation)
 			}
 		}
 	}
@@ -787,7 +787,7 @@ func (pl *DynamicResources) Unreserve(ctx context.Context, cs *framework.CycleSt
 
 			// If quota tracking at allocation time is enabled, remove the allocation
 			if pl.enableQuotaAtAllocationTime {
-				pl.quotaTracker.RemoveAllocation(claim.Namespace, claim.UID)
+				pl.quotaTracker.RemoveAllocation(ctx, pl.clientset, claim.Namespace, claim.UID)
 			}
 		}
 
