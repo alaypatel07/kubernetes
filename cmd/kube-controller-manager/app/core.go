@@ -450,7 +450,11 @@ func startResourceClaimController(ctx context.Context, controllerContext Control
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to start resource claim controller: %v", err)
 	}
-	go ephemeralController.Run(ctx, defaultResourceClaimControllerWorkers)
+	workers := controllerContext.ComponentConfig.ResourceClaimController.ConcurrentResourceClaimSyncs
+	if workers <= 0 {
+		workers = defaultResourceClaimControllerWorkers
+	}
+	go ephemeralController.Run(ctx, int(workers))
 	return nil, true, nil
 }
 

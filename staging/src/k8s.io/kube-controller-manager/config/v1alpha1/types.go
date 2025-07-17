@@ -168,6 +168,9 @@ type KubeControllerManagerConfiguration struct {
 	// ValidatingAdmissionPolicyStatusControllerConfiguration holds configuration for
 	// ValidatingAdmissionPolicyStatusController related features.
 	ValidatingAdmissionPolicyStatusController ValidatingAdmissionPolicyStatusControllerConfiguration
+	// ResourceClaimControllerConfiguration holds configuration for ResourceClaimController
+	// related features.
+	ResourceClaimController ResourceClaimControllerConfiguration
 }
 
 // AttachDetachControllerConfiguration contains elements describing AttachDetachController.
@@ -297,6 +300,14 @@ type EndpointSliceMirroringControllerConfiguration struct {
 	// single EndpointSlice update. Default 0 value means that each Endpoints
 	// update triggers an EndpointSlice update.
 	MirroringEndpointUpdatesBatchPeriod metav1.Duration
+}
+
+// ResourceClaimControllerConfiguration contains elements describing ResourceClaimController.
+type ResourceClaimControllerConfiguration struct {
+	// ConcurrentResourceClaimSyncs is the number of resource claim syncing operations
+	// that will be done concurrently. Larger number = faster resource claim processing,
+	// but more CPU (and network) load.
+	ConcurrentResourceClaimSyncs int32
 }
 
 // EphemeralVolumeControllerConfiguration contains elements describing EphemeralVolumeController.

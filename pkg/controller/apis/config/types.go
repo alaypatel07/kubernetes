@@ -136,8 +136,19 @@ type KubeControllerManagerConfiguration struct {
 	// ValidatingAdmissionPolicyStatusControllerConfiguration holds configuration for
 	// ValidatingAdmissionPolicyStatusController related features.
 	ValidatingAdmissionPolicyStatusController validatingadmissionpolicystatusconfig.ValidatingAdmissionPolicyStatusControllerConfiguration
+	// ResourceClaimControllerConfiguration holds configuration for
+	// ResourceClaimController related features.
+	ResourceClaimController ResourceClaimControllerConfiguration
 }
 
 // DeprecatedControllerConfiguration contains elements be deprecated.
 type DeprecatedControllerConfiguration struct {
+}
+
+// ResourceClaimControllerConfiguration contains elements describing ResourceClaimController.
+type ResourceClaimControllerConfiguration struct {
+	// ConcurrentResourceClaimSyncs is the number of resource claim syncing operations
+	// that will be done concurrently. Larger number = faster resource claim processing,
+	// but more CPU (and network) load.
+	ConcurrentResourceClaimSyncs int32
 }
