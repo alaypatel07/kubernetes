@@ -270,7 +270,12 @@
                     "resource": "resourceValue",
                     "divisor": "0"
                   },
-                  "mode": 4
+                  "mode": 4,
+                  "draDeviceFieldRef": {
+                    "claimName": "claimNameValue",
+                    "requestName": "requestNameValue",
+                    "attribute": "attributeValue"
+                  }
                 }
               ],
               "defaultMode": 2
@@ -356,7 +361,12 @@
                           "resource": "resourceValue",
                           "divisor": "0"
                         },
-                        "mode": 4
+                        "mode": 4,
+                        "draDeviceFieldRef": {
+                          "claimName": "claimNameValue",
+                          "requestName": "requestNameValue",
+                          "attribute": "attributeValue"
+                        }
                       }
                     ]
                   },
@@ -603,6 +613,11 @@
                     "path": "pathValue",
                     "key": "keyValue",
                     "optional": true
+                  },
+                  "draDeviceFieldRef": {
+                    "claimName": "claimNameValue",
+                    "requestName": "requestNameValue",
+                    "attribute": "attributeValue"
                   }
                 }
               }
@@ -917,6 +932,11 @@
                     "path": "pathValue",
                     "key": "keyValue",
                     "optional": true
+                  },
+                  "draDeviceFieldRef": {
+                    "claimName": "claimNameValue",
+                    "requestName": "requestNameValue",
+                    "attribute": "attributeValue"
                   }
                 }
               }
@@ -1231,6 +1251,11 @@
                     "path": "pathValue",
                     "key": "keyValue",
                     "optional": true
+                  },
+                  "draDeviceFieldRef": {
+                    "claimName": "claimNameValue",
+                    "requestName": "requestNameValue",
+                    "attribute": "attributeValue"
                   }
                 }
               }

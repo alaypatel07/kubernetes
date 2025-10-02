@@ -1423,6 +1423,33 @@
         ],
         "type": "object"
       },
+      "io.k8s.api.core.v1.DRADeviceFieldRef": {
+        "description": "DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.",
+        "properties": {
+          "attribute": {
+            "default": "",
+            "description": "Attribute specifies which standardized attribute to expose. Supported values (alpha): \"pciAddress\", \"mdevUUID\".",
+            "type": "string"
+          },
+          "claimName": {
+            "default": "",
+            "description": "ClaimName must match pod.spec.resourceClaims[].name.",
+            "type": "string"
+          },
+          "requestName": {
+            "default": "",
+            "description": "RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "claimName",
+          "requestName",
+          "attribute"
+        ],
+        "type": "object",
+        "x-kubernetes-map-type": "atomic"
+      },
       "io.k8s.api.core.v1.DownwardAPIProjection": {
         "description": "Represents downward API info for projecting into a projected volume. Note that this is identical to a downwardAPI volume source without the default mode.",
         "properties": {
@@ -1445,6 +1472,14 @@
       "io.k8s.api.core.v1.DownwardAPIVolumeFile": {
         "description": "DownwardAPIVolumeFile represents information to create the file containing the pod field",
         "properties": {
+          "draDeviceFieldRef": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/io.k8s.api.core.v1.DRADeviceFieldRef"
+              }
+            ],
+            "description": "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled."
+          },
           "fieldRef": {
             "allOf": [
               {
@@ -1581,6 +1616,14 @@
               }
             ],
             "description": "Selects a key of a ConfigMap."
+          },
+          "draDeviceFieldRef": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/io.k8s.api.core.v1.DRADeviceFieldRef"
+              }
+            ],
+            "description": "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled."
           },
           "fieldRef": {
             "allOf": [

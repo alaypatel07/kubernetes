@@ -231,6 +231,10 @@ spec:
               key: keyValue
               name: nameValue
               optional: true
+            draDeviceFieldRef:
+              attribute: attributeValue
+              claimName: claimNameValue
+              requestName: requestNameValue
             fieldRef:
               apiVersion: apiVersionValue
               fieldPath: fieldPathValue
@@ -459,6 +463,10 @@ spec:
               key: keyValue
               name: nameValue
               optional: true
+            draDeviceFieldRef:
+              attribute: attributeValue
+              claimName: claimNameValue
+              requestName: requestNameValue
             fieldRef:
               apiVersion: apiVersionValue
               fieldPath: fieldPathValue
@@ -690,6 +698,10 @@ spec:
               key: keyValue
               name: nameValue
               optional: true
+            draDeviceFieldRef:
+              attribute: attributeValue
+              claimName: claimNameValue
+              requestName: requestNameValue
             fieldRef:
               apiVersion: apiVersionValue
               fieldPath: fieldPathValue
@@ -1033,7 +1045,11 @@ spec:
         downwardAPI:
           defaultMode: 2
           items:
-          - fieldRef:
+          - draDeviceFieldRef:
+              attribute: attributeValue
+              claimName: claimNameValue
+              requestName: requestNameValue
+            fieldRef:
               apiVersion: apiVersionValue
               fieldPath: fieldPathValue
             mode: 4
@@ -1200,7 +1216,11 @@ spec:
               optional: true
             downwardAPI:
               items:
-              - fieldRef:
+              - draDeviceFieldRef:
+                  attribute: attributeValue
+                  claimName: claimNameValue
+                  requestName: requestNameValue
+                fieldRef:
                   apiVersion: apiVersionValue
                   fieldPath: fieldPathValue
                 mode: 4

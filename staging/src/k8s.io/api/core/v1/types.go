@@ -2491,6 +2491,12 @@ type EnvVarSource struct {
 	// +featureGate=EnvFiles
 	// +optional
 	FileKeyRef *FileKeySelector `json:"fileKeyRef,omitempty" protobuf:"bytes,5,opt,name=fileKeyRef"`
+	// DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+	// Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+	//
+	// +featureGate=DRADownwardDeviceAttributes
+	// +optional
+	DRADeviceFieldRef *DRADeviceFieldRef `json:"draDeviceFieldRef,omitempty" protobuf:"bytes,6,opt,name=draDeviceFieldRef"`
 }
 
 // FileKeySelector selects a key of the env file.
@@ -8085,6 +8091,28 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32 `json:"mode,omitempty" protobuf:"varint,4,opt,name=mode"`
+	// DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+	// Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+	//
+	// +featureGate=DRADownwardDeviceAttributes
+	// +optional
+	DRADeviceFieldRef *DRADeviceFieldRef `json:"draDeviceFieldRef,omitempty" protobuf:"bytes,5,opt,name=draDeviceFieldRef"`
+}
+
+// DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.
+// +featureGate=DRADownwardDeviceAttributes
+// +structType=atomic
+type DRADeviceFieldRef struct {
+	// ClaimName must match pod.spec.resourceClaims[].name.
+	// +required
+	ClaimName string `json:"claimName" protobuf:"bytes,1,opt,name=claimName"`
+	// RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.
+	// +required
+	RequestName string `json:"requestName" protobuf:"bytes,2,opt,name=requestName"`
+	// Attribute specifies which standardized attribute to expose.
+	// Supported values (alpha): "pciAddress", "mdevUUID".
+	// +required
+	Attribute string `json:"attribute" protobuf:"bytes,3,opt,name=attribute"`
 }
 
 // Represents downward API info for projecting into a projected volume.

@@ -756,6 +756,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &applyconfigurationscorev1.DownwardAPIVolumeFileApplyConfiguration{}
 	case corev1.SchemeGroupVersion.WithKind("DownwardAPIVolumeSource"):
 		return &applyconfigurationscorev1.DownwardAPIVolumeSourceApplyConfiguration{}
+	case corev1.SchemeGroupVersion.WithKind("DRADeviceFieldRef"):
+		return &applyconfigurationscorev1.DRADeviceFieldRefApplyConfiguration{}
 	case corev1.SchemeGroupVersion.WithKind("EmptyDirVolumeSource"):
 		return &applyconfigurationscorev1.EmptyDirVolumeSourceApplyConfiguration{}
 	case corev1.SchemeGroupVersion.WithKind("EndpointAddress"):

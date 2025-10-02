@@ -210,6 +210,10 @@ template:
             key: keyValue
             name: nameValue
             optional: true
+          draDeviceFieldRef:
+            attribute: attributeValue
+            claimName: claimNameValue
+            requestName: requestNameValue
           fieldRef:
             apiVersion: apiVersionValue
             fieldPath: fieldPathValue
@@ -438,6 +442,10 @@ template:
             key: keyValue
             name: nameValue
             optional: true
+          draDeviceFieldRef:
+            attribute: attributeValue
+            claimName: claimNameValue
+            requestName: requestNameValue
           fieldRef:
             apiVersion: apiVersionValue
             fieldPath: fieldPathValue
@@ -669,6 +677,10 @@ template:
             key: keyValue
             name: nameValue
             optional: true
+          draDeviceFieldRef:
+            attribute: attributeValue
+            claimName: claimNameValue
+            requestName: requestNameValue
           fieldRef:
             apiVersion: apiVersionValue
             fieldPath: fieldPathValue
@@ -1012,7 +1024,11 @@ template:
       downwardAPI:
         defaultMode: 2
         items:
-        - fieldRef:
+        - draDeviceFieldRef:
+            attribute: attributeValue
+            claimName: claimNameValue
+            requestName: requestNameValue
+          fieldRef:
             apiVersion: apiVersionValue
             fieldPath: fieldPathValue
           mode: 4
@@ -1179,7 +1195,11 @@ template:
             optional: true
           downwardAPI:
             items:
-            - fieldRef:
+            - draDeviceFieldRef:
+                attribute: attributeValue
+                claimName: claimNameValue
+                requestName: requestNameValue
+              fieldRef:
                 apiVersion: apiVersionValue
                 fieldPath: fieldPathValue
               mode: 4

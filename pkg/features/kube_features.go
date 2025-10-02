@@ -1030,6 +1030,9 @@ const (
 	//
 	// Enables support for joining Windows containers to a hosts' network namespace.
 	WindowsHostNetwork featuregate.Feature = "WindowsHostNetwork"
+
+	// Enables kubelet-resident Downward API for DRA device attributes and associated env/volume resolution.
+	DRADownwardDeviceAttributes featuregate.Feature = "DRADownwardDeviceAttributes"
 )
 
 // defaultVersionedKubernetesFeatureGates consists of all known Kubernetes-specific feature keys with VersionedSpecs.
@@ -1368,6 +1371,15 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
 		{Version: version.MustParse("1.25"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("1.27"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("1.34"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.37
+	},
+
+	// owner: @alaypatel07
+	// kep: http://kep.k8s.io/TBD
+	// alpha: v1.34
+	//
+	// Enables kubelet-resident Downward API for DRA device attributes and associated env/volume resolution.
+	DRADownwardDeviceAttributes: {
+		{Version: version.MustParse("1.3"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	LoadBalancerIPMode: {

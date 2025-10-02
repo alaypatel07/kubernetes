@@ -469,6 +469,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "1.33"
+- name: DRADownwardDeviceAttributes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "1.3"
 - name: DRAExtendedResource
   versionedSpecs:
   - default: false

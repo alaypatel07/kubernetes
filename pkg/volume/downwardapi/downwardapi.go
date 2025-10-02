@@ -17,14 +17,20 @@ limitations under the License.
 package downwardapi
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/api/v1/resource"
+	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/fieldpath"
 	"k8s.io/kubernetes/pkg/volume"
 	volumeutil "k8s.io/kubernetes/pkg/volume/util"
@@ -269,11 +275,92 @@ func CollectData(items []v1.DownwardAPIVolumeFile, pod *v1.Pod, host volume.Volu
 			} else {
 				fileProjection.Data = []byte(values)
 			}
+		} else if utilfeature.DefaultFeatureGate.Enabled(features.DRADownwardDeviceAttributes) && fileInfo.DRADeviceFieldRef != nil {
+			// Resolve via kubelet helper: use the same logic as env resolution; call into kubelet via host if available.
+			// For POC simplicity, fetch via client from host and resolve directly here.
+			kubeClient := host.GetKubeClient()
+			if kubeClient == nil {
+				errlist = append(errlist, fmt.Errorf("dra downward api requires kubeClient"))
+			} else if val, err := resolveDRAForVolume(kubeClient, pod, fileInfo.DRADeviceFieldRef); err != nil {
+				klog.Errorf("Unable to resolve DRA attribute %s for %s/%s: %v", fileInfo.DRADeviceFieldRef.Attribute, pod.Namespace, pod.Name, err)
+				errlist = append(errlist, err)
+			} else {
+				fileProjection.Data = []byte(val)
+			}
 		}
 
 		data[fPath] = fileProjection
 	}
 	return data, utilerrors.NewAggregate(errlist)
+}
+
+// resolveDRAForVolume mirrors kubelet's env resolver for DRA device attributes.
+func resolveDRAForVolume(kubeClient clientset.Interface, pod *v1.Pod, ref *v1.DRADeviceFieldRef) (string, error) {
+	if ref == nil {
+		return "", fmt.Errorf("nil DRADeviceFieldRef")
+	}
+	ctx := context.TODO()
+	var claimName *string
+	for i := range pod.Status.ResourceClaimStatuses {
+		s := &pod.Status.ResourceClaimStatuses[i]
+		if s.Name == ref.ClaimName && s.ResourceClaimName != nil {
+			claimName = s.ResourceClaimName
+			break
+		}
+	}
+	if claimName == nil {
+		return "", fmt.Errorf("resourceClaim not found for claim %q", ref.ClaimName)
+	}
+	claim, err := kubeClient.ResourceV1().ResourceClaims(pod.Namespace).Get(ctx, *claimName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	if claim.Status.Allocation == nil {
+		return "", fmt.Errorf("ResourceClaim not allocated")
+	}
+	var deviceName, driverName string
+	for _, res := range claim.Status.Allocation.Devices.Results {
+		if res.Request == ref.RequestName {
+			deviceName = res.Device
+			driverName = res.Driver
+			break
+		}
+	}
+	if deviceName == "" || driverName == "" {
+		return "", fmt.Errorf("device not found for request %q", ref.RequestName)
+	}
+	nodeName := pod.Spec.NodeName
+	opts := metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", nodeName).String()}
+	slices, err := kubeClient.ResourceV1().ResourceSlices().List(ctx, opts)
+	if err != nil {
+		return "", err
+	}
+	for i := range slices.Items {
+		rs := &slices.Items[i]
+		if rs.Spec.Driver != driverName || rs.Spec.NodeName == nil || *rs.Spec.NodeName != nodeName {
+			continue
+		}
+		for _, d := range rs.Spec.Devices {
+			if d.Name != deviceName {
+				continue
+			}
+			switch ref.Attribute {
+			case "pciAddress":
+				if attr, ok := d.Attributes["pciAddress"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			case "mdevUUID":
+				if attr, ok := d.Attributes["mdevUUID"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			case "uuid":
+				if attr, ok := d.Attributes["uuid"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("attribute %q not found for device %s", ref.Attribute, deviceName)
 }
 
 func (d *downwardAPIVolume) GetPath() string {
@@ -307,3 +394,4 @@ func getVolumeSource(spec *volume.Spec) (*v1.DownwardAPIVolumeSource, bool) {
 
 	return volumeSource, readOnly
 }
+

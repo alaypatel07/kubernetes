@@ -1497,6 +1497,28 @@ type DownwardAPIVolumeFile struct {
 	// mode, like fsGroup, and the result can be other mode bits set.
 	// +optional
 	Mode *int32
+	// DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+	// Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+	//
+	// +featureGate=DRADownwardDeviceAttributes
+	// +optional
+	DRADeviceFieldRef *DRADeviceFieldRef
+}
+
+// DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.
+// +featureGate=DRADownwardDeviceAttributes
+// +structType=atomic
+type DRADeviceFieldRef struct {
+	// ClaimName must match pod.spec.resourceClaims[].name.
+	// +required
+	ClaimName string
+	// RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.
+	// +required
+	RequestName string
+	// Attribute specifies which standardized attribute to expose.
+	// Supported values (alpha): "pciAddress", "mdevUUID".
+	// +required
+	Attribute string
 }
 
 // DownwardAPIProjection represents downward API info for projecting into a projected volume.
@@ -2262,6 +2284,12 @@ type EnvVarSource struct {
 	// +featureGate=EnvFiles
 	// +optional
 	FileKeyRef *FileKeySelector
+	// DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+	// Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+	//
+	// +featureGate=DRADownwardDeviceAttributes
+	// +optional
+	DRADeviceFieldRef *DRADeviceFieldRef
 }
 
 // FileKeySelector selects a key of the env file.

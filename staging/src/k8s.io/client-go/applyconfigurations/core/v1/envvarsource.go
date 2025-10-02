@@ -36,6 +36,9 @@ type EnvVarSourceApplyConfiguration struct {
 	// FileKeyRef selects a key of the env file.
 	// Requires the EnvFiles feature gate to be enabled.
 	FileKeyRef *FileKeySelectorApplyConfiguration `json:"fileKeyRef,omitempty"`
+	// DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+	// Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+	DRADeviceFieldRef *DRADeviceFieldRefApplyConfiguration `json:"draDeviceFieldRef,omitempty"`
 }
 
 // EnvVarSourceApplyConfiguration constructs a declarative configuration of the EnvVarSource type for use with
@@ -81,5 +84,13 @@ func (b *EnvVarSourceApplyConfiguration) WithSecretKeyRef(value *SecretKeySelect
 // If called multiple times, the FileKeyRef field is set to the value of the last call.
 func (b *EnvVarSourceApplyConfiguration) WithFileKeyRef(value *FileKeySelectorApplyConfiguration) *EnvVarSourceApplyConfiguration {
 	b.FileKeyRef = value
+	return b
+}
+
+// WithDRADeviceFieldRef sets the DRADeviceFieldRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DRADeviceFieldRef field is set to the value of the last call.
+func (b *EnvVarSourceApplyConfiguration) WithDRADeviceFieldRef(value *DRADeviceFieldRefApplyConfiguration) *EnvVarSourceApplyConfiguration {
+	b.DRADeviceFieldRef = value
 	return b
 }

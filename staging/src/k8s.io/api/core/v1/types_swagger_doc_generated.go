@@ -522,6 +522,17 @@ func (ContainerUser) SwaggerDoc() map[string]string {
 	return map_ContainerUser
 }
 
+var map_DRADeviceFieldRef = map[string]string{
+	"":            "DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.",
+	"claimName":   "ClaimName must match pod.spec.resourceClaims[].name.",
+	"requestName": "RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.",
+	"attribute":   "Attribute specifies which standardized attribute to expose. Supported values (alpha): \"pciAddress\", \"mdevUUID\".",
+}
+
+func (DRADeviceFieldRef) SwaggerDoc() map[string]string {
+	return map_DRADeviceFieldRef
+}
+
 var map_DaemonEndpoint = map[string]string{
 	"":     "DaemonEndpoint contains information about a single Daemon endpoint.",
 	"Port": "Port number of the given endpoint.",
@@ -541,11 +552,12 @@ func (DownwardAPIProjection) SwaggerDoc() map[string]string {
 }
 
 var map_DownwardAPIVolumeFile = map[string]string{
-	"":                 "DownwardAPIVolumeFile represents information to create the file containing the pod field",
-	"path":             "Required: Path is  the relative path name of the file to be created. Must not be absolute or contain the '..' path. Must be utf-8 encoded. The first item of the relative path must not start with '..'",
-	"fieldRef":         "Required: Selects a field of the pod: only annotations, labels, name, namespace and uid are supported.",
-	"resourceFieldRef": "Selects a resource of the container: only resources limits and requests (limits.cpu, limits.memory, requests.cpu and requests.memory) are currently supported.",
-	"mode":             "Optional: mode bits used to set permissions on this file, must be an octal value between 0000 and 0777 or a decimal value between 0 and 511. YAML accepts both octal and decimal values, JSON requires decimal values for mode bits. If not specified, the volume defaultMode will be used. This might be in conflict with other options that affect the file mode, like fsGroup, and the result can be other mode bits set.",
+	"":                  "DownwardAPIVolumeFile represents information to create the file containing the pod field",
+	"path":              "Required: Path is  the relative path name of the file to be created. Must not be absolute or contain the '..' path. Must be utf-8 encoded. The first item of the relative path must not start with '..'",
+	"fieldRef":          "Required: Selects a field of the pod: only annotations, labels, name, namespace and uid are supported.",
+	"resourceFieldRef":  "Selects a resource of the container: only resources limits and requests (limits.cpu, limits.memory, requests.cpu and requests.memory) are currently supported.",
+	"mode":              "Optional: mode bits used to set permissions on this file, must be an octal value between 0000 and 0777 or a decimal value between 0 and 511. YAML accepts both octal and decimal values, JSON requires decimal values for mode bits. If not specified, the volume defaultMode will be used. This might be in conflict with other options that affect the file mode, like fsGroup, and the result can be other mode bits set.",
+	"draDeviceFieldRef": "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled.",
 }
 
 func (DownwardAPIVolumeFile) SwaggerDoc() map[string]string {
@@ -650,12 +662,13 @@ func (EnvVar) SwaggerDoc() map[string]string {
 }
 
 var map_EnvVarSource = map[string]string{
-	"":                 "EnvVarSource represents a source for the value of an EnvVar.",
-	"fieldRef":         "Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`, spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.",
-	"resourceFieldRef": "Selects a resource of the container: only resources limits and requests (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.",
-	"configMapKeyRef":  "Selects a key of a ConfigMap.",
-	"secretKeyRef":     "Selects a key of a secret in the pod's namespace",
-	"fileKeyRef":       "FileKeyRef selects a key of the env file. Requires the EnvFiles feature gate to be enabled.",
+	"":                  "EnvVarSource represents a source for the value of an EnvVar.",
+	"fieldRef":          "Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`, spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.",
+	"resourceFieldRef":  "Selects a resource of the container: only resources limits and requests (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.",
+	"configMapKeyRef":   "Selects a key of a ConfigMap.",
+	"secretKeyRef":      "Selects a key of a secret in the pod's namespace",
+	"fileKeyRef":        "FileKeyRef selects a key of the env file. Requires the EnvFiles feature gate to be enabled.",
+	"draDeviceFieldRef": "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled.",
 }
 
 func (EnvVarSource) SwaggerDoc() map[string]string {

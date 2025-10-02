@@ -1178,6 +1178,24 @@ message ContainerUser {
   optional LinuxContainerUser linux = 1;
 }
 
+// DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.
+// +featureGate=DRADownwardDeviceAttributes
+// +structType=atomic
+message DRADeviceFieldRef {
+  // ClaimName must match pod.spec.resourceClaims[].name.
+  // +required
+  optional string claimName = 1;
+
+  // RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.
+  // +required
+  optional string requestName = 2;
+
+  // Attribute specifies which standardized attribute to expose.
+  // Supported values (alpha): "pciAddress", "mdevUUID".
+  // +required
+  optional string attribute = 3;
+}
+
 // DaemonEndpoint contains information about a single Daemon endpoint.
 message DaemonEndpoint {
   // Port number of the given endpoint.
@@ -1216,6 +1234,13 @@ message DownwardAPIVolumeFile {
   // mode, like fsGroup, and the result can be other mode bits set.
   // +optional
   optional int32 mode = 4;
+
+  // DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+  // Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+  //
+  // +featureGate=DRADownwardDeviceAttributes
+  // +optional
+  optional DRADeviceFieldRef draDeviceFieldRef = 5;
 }
 
 // DownwardAPIVolumeSource represents a volume containing downward API info.
@@ -1467,6 +1492,13 @@ message EnvVarSource {
   // +featureGate=EnvFiles
   // +optional
   optional FileKeySelector fileKeyRef = 5;
+
+  // DRADeviceFieldRef selects a DRA device attribute for a given claim+request.
+  // Requires the DRADownwardDeviceAttributes feature gate to be enabled.
+  //
+  // +featureGate=DRADownwardDeviceAttributes
+  // +optional
+  optional DRADeviceFieldRef draDeviceFieldRef = 6;
 }
 
 // An EphemeralContainer is a temporary container that you may add to an existing Pod for

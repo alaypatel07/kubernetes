@@ -5583,6 +5583,22 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: linux
       type:
         namedType: io.k8s.api.core.v1.LinuxContainerUser
+- name: io.k8s.api.core.v1.DRADeviceFieldRef
+  map:
+    fields:
+    - name: attribute
+      type:
+        scalar: string
+      default: ""
+    - name: claimName
+      type:
+        scalar: string
+      default: ""
+    - name: requestName
+      type:
+        scalar: string
+      default: ""
+    elementRelationship: atomic
 - name: io.k8s.api.core.v1.DaemonEndpoint
   map:
     fields:
@@ -5602,6 +5618,9 @@ var schemaYAML = typed.YAMLObject(`types:
 - name: io.k8s.api.core.v1.DownwardAPIVolumeFile
   map:
     fields:
+    - name: draDeviceFieldRef
+      type:
+        namedType: io.k8s.api.core.v1.DRADeviceFieldRef
     - name: fieldRef
       type:
         namedType: io.k8s.api.core.v1.ObjectFieldSelector
@@ -5741,6 +5760,9 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: configMapKeyRef
       type:
         namedType: io.k8s.api.core.v1.ConfigMapKeySelector
+    - name: draDeviceFieldRef
+      type:
+        namedType: io.k8s.api.core.v1.DRADeviceFieldRef
     - name: fieldRef
       type:
         namedType: io.k8s.api.core.v1.ObjectFieldSelector

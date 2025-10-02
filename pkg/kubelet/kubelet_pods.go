@@ -39,6 +39,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -961,6 +962,12 @@ func (kl *Kubelet) makeEnvironmentVariables(pod *v1.Pod, container *v1.Container
 					}
 					return result, fmt.Errorf("environment variable key %q not found in file %q", key, envFilePath)
 				}
+			case utilfeature.DefaultFeatureGate.Enabled(features.DRADownwardDeviceAttributes) && envVar.ValueFrom.DRADeviceFieldRef != nil:
+				val, err := kl.resolveDRADeviceAttribute(context.TODO(), pod, envVar.ValueFrom.DRADeviceFieldRef)
+				if err != nil {
+					return result, err
+				}
+				runtimeVal = val
 			}
 		}
 
@@ -1036,6 +1043,95 @@ func containerResourceRuntimeValue(fs *v1.ResourceFieldSelector, pod *v1.Pod, co
 		return resource.ExtractContainerResourceValue(fs, container)
 	}
 	return resource.ExtractResourceValueByContainerName(fs, pod, containerName)
+}
+
+// resolveDRADeviceAttribute resolves a DRA device attribute for a given claim+request.
+// POC implementation: fetches ResourceClaim and ResourceSlices directly via kubeClient.
+func (kl *Kubelet) resolveDRADeviceAttribute(ctx context.Context, pod *v1.Pod, ref *v1.DRADeviceFieldRef) (string, error) {
+	if ref == nil || kl.kubeClient == nil {
+		return "", fmt.Errorf("DRADeviceFieldRef unsupported: missing ref or kubeClient")
+	}
+	// Resolve ResourceClaim name: prefer spec.resourceClaims[].resourceClaimName;
+	// if a template is used, fall back to status.resourceClaimStatuses.
+	var claimName *string
+	for i := range pod.Spec.ResourceClaims {
+		rc := &pod.Spec.ResourceClaims[i]
+		if rc.Name != ref.ClaimName {
+			continue
+		}
+		if rc.ResourceClaimName != nil {
+			claimName = rc.ResourceClaimName
+			break
+		}
+		if rc.ResourceClaimTemplateName != nil {
+			for j := range pod.Status.ResourceClaimStatuses {
+				s := &pod.Status.ResourceClaimStatuses[j]
+				if s.Name == ref.ClaimName && s.ResourceClaimName != nil {
+					claimName = s.ResourceClaimName
+					break
+				}
+			}
+			break
+		}
+	}
+	if claimName == nil {
+		return "", fmt.Errorf("resourceClaim not found for claim %q", ref.ClaimName)
+	}
+	// Get the ResourceClaim.
+	claim, err := kl.kubeClient.ResourceV1().ResourceClaims(pod.Namespace).Get(ctx, *claimName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get ResourceClaim %s: %w", *claimName, err)
+	}
+	if claim.Status.Allocation == nil {
+		return "", fmt.Errorf("ResourceClaim %s not allocated", claim.Name)
+	}
+	var deviceName, driverName string
+	for _, res := range claim.Status.Allocation.Devices.Results {
+		if res.Request == ref.RequestName {
+			deviceName = res.Device
+			driverName = res.Driver
+			break
+		}
+	}
+	if deviceName == "" || driverName == "" {
+		return "", fmt.Errorf("no device found for request %q in claim %s", ref.RequestName, claim.Name)
+	}
+	// List ResourceSlices for this node (required by NodeAuthorizer) and find the matching device entry.
+	nodeName := pod.Spec.NodeName
+	opts := metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", nodeName).String()}
+	slices, err := kl.kubeClient.ResourceV1().ResourceSlices().List(ctx, opts)
+	if err != nil {
+		return "", fmt.Errorf("list ResourceSlices: %w", err)
+	}
+	for i := range slices.Items {
+		rs := &slices.Items[i]
+		if rs.Spec.Driver != driverName || rs.Spec.NodeName == nil || *rs.Spec.NodeName != nodeName {
+			continue
+		}
+		for _, d := range rs.Spec.Devices {
+			if d.Name != deviceName {
+				continue
+			}
+			// Lookup attribute.
+			switch ref.Attribute {
+			case "pciAddress":
+				if attr, ok := d.Attributes["pciAddress"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			case "mdevUUID":
+				if attr, ok := d.Attributes["mdevUUID"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			case "uuid": // POC alias for example drivers that publish 'uuid'
+				if attr, ok := d.Attributes["uuid"]; ok && attr.String != nil {
+					return *attr.StringValue, nil
+				}
+			default:
+				return "", fmt.Errorf("unsupported DRA attribute %q", ref.Attribute)
+			}
+		}
+	}
+	return "", fmt.Errorf("attribute %q not found for device %s", ref.Attribute, deviceName)
 }
 
 // killPod instructs the container runtime to kill the pod. This method requires that
@@ -2650,3 +2746,4 @@ func resolveRecursiveReadOnly(m v1.VolumeMount, runtimeSupportsRRO bool) (bool, 
 		return false, fmt.Errorf("unknown recursive read-only mode %q", rroMode)
 	}
 }
+

@@ -227,6 +227,11 @@ func (in ContainerUser) OpenAPIModelName() string {
 }
 
 // OpenAPIModelName returns the OpenAPI model name for this type.
+func (in DRADeviceFieldRef) OpenAPIModelName() string {
+	return "io.k8s.api.core.v1.DRADeviceFieldRef"
+}
+
+// OpenAPIModelName returns the OpenAPI model name for this type.
 func (in DaemonEndpoint) OpenAPIModelName() string {
 	return "io.k8s.api.core.v1.DaemonEndpoint"
 }

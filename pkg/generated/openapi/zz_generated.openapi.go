@@ -539,6 +539,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		corev1.ContainerStateWaiting{}.OpenAPIModelName():                                                               schema_k8sio_api_core_v1_ContainerStateWaiting(ref),
 		corev1.ContainerStatus{}.OpenAPIModelName():                                                                     schema_k8sio_api_core_v1_ContainerStatus(ref),
 		corev1.ContainerUser{}.OpenAPIModelName():                                                                       schema_k8sio_api_core_v1_ContainerUser(ref),
+		corev1.DRADeviceFieldRef{}.OpenAPIModelName():                                                                   schema_k8sio_api_core_v1_DRADeviceFieldRef(ref),
 		corev1.DaemonEndpoint{}.OpenAPIModelName():                                                                      schema_k8sio_api_core_v1_DaemonEndpoint(ref),
 		corev1.DownwardAPIProjection{}.OpenAPIModelName():                                                               schema_k8sio_api_core_v1_DownwardAPIProjection(ref),
 		corev1.DownwardAPIVolumeFile{}.OpenAPIModelName():                                                               schema_k8sio_api_core_v1_DownwardAPIVolumeFile(ref),
@@ -23099,6 +23100,49 @@ func schema_k8sio_api_core_v1_ContainerUser(ref common.ReferenceCallback) common
 	}
 }
 
+func schema_k8sio_api_core_v1_DRADeviceFieldRef(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "DRADeviceFieldRef selects a DRA-resolved device attribute for a given claim+request.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"claimName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ClaimName must match pod.spec.resourceClaims[].name.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"requestName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RequestName must match the corresponding ResourceClaim.spec.devices.requests[].name.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"attribute": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Attribute specifies which standardized attribute to expose. Supported values (alpha): \"pciAddress\", \"mdevUUID\".",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"claimName", "requestName", "attribute"},
+			},
+			VendorExtensible: spec.VendorExtensible{
+				Extensions: spec.Extensions{
+					"x-kubernetes-map-type": "atomic",
+				},
+			},
+		},
+	}
+}
+
 func schema_k8sio_api_core_v1_DaemonEndpoint(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -23189,12 +23233,18 @@ func schema_k8sio_api_core_v1_DownwardAPIVolumeFile(ref common.ReferenceCallback
 							Format:      "int32",
 						},
 					},
+					"draDeviceFieldRef": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled.",
+							Ref:         ref(corev1.DRADeviceFieldRef{}.OpenAPIModelName()),
+						},
+					},
 				},
 				Required: []string{"path"},
 			},
 		},
 		Dependencies: []string{
-			corev1.ObjectFieldSelector{}.OpenAPIModelName(), corev1.ResourceFieldSelector{}.OpenAPIModelName()},
+			corev1.DRADeviceFieldRef{}.OpenAPIModelName(), corev1.ObjectFieldSelector{}.OpenAPIModelName(), corev1.ResourceFieldSelector{}.OpenAPIModelName()},
 	}
 }
 
@@ -23651,11 +23701,17 @@ func schema_k8sio_api_core_v1_EnvVarSource(ref common.ReferenceCallback) common.
 							Ref:         ref(corev1.FileKeySelector{}.OpenAPIModelName()),
 						},
 					},
+					"draDeviceFieldRef": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DRADeviceFieldRef selects a DRA device attribute for a given claim+request. Requires the DRADownwardDeviceAttributes feature gate to be enabled.",
+							Ref:         ref(corev1.DRADeviceFieldRef{}.OpenAPIModelName()),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			corev1.ConfigMapKeySelector{}.OpenAPIModelName(), corev1.FileKeySelector{}.OpenAPIModelName(), corev1.ObjectFieldSelector{}.OpenAPIModelName(), corev1.ResourceFieldSelector{}.OpenAPIModelName(), corev1.SecretKeySelector{}.OpenAPIModelName()},
+			corev1.ConfigMapKeySelector{}.OpenAPIModelName(), corev1.DRADeviceFieldRef{}.OpenAPIModelName(), corev1.FileKeySelector{}.OpenAPIModelName(), corev1.ObjectFieldSelector{}.OpenAPIModelName(), corev1.ResourceFieldSelector{}.OpenAPIModelName(), corev1.SecretKeySelector{}.OpenAPIModelName()},
 	}
 }
 

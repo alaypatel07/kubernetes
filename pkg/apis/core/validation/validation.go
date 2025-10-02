@@ -1101,8 +1101,19 @@ func validateDownwardAPIVolumeFile(file *core.DownwardAPIVolumeFile, fldPath *fi
 	} else if file.ResourceFieldRef != nil {
 		localValidContainerResourceFieldPathPrefixes := validContainerResourceFieldPathPrefixesWithDownwardAPIHugePages
 		allErrs = append(allErrs, validateContainerResourceFieldSelector(file.ResourceFieldRef, &validContainerResourceFieldPathExpressions, &localValidContainerResourceFieldPathPrefixes, fldPath.Child("resourceFieldRef"), true)...)
+	} else if file.DRADeviceFieldRef != nil {
+		ref := file.DRADeviceFieldRef
+		if len(ref.ClaimName) == 0 {
+			allErrs = append(allErrs, field.Required(fldPath.Child("draDeviceFieldRef").Child("claimName"), ""))
+		}
+		if len(ref.RequestName) == 0 {
+			allErrs = append(allErrs, field.Required(fldPath.Child("draDeviceFieldRef").Child("requestName"), ""))
+		}
+		if ref.Attribute != "pciAddress" && ref.Attribute != "mdevUUID" && ref.Attribute != "uuid" {
+			allErrs = append(allErrs, field.NotSupported(fldPath.Child("draDeviceFieldRef").Child("attribute"), ref.Attribute, []string{"pciAddress", "mdevUUID", "uuid"}))
+		}
 	} else {
-		allErrs = append(allErrs, field.Required(fldPath, "one of fieldRef and resourceFieldRef is required"))
+		allErrs = append(allErrs, field.Required(fldPath, "one of fieldRef, resourceFieldRef or draDeviceFieldRef is required"))
 	}
 	if file.Mode != nil && (*file.Mode > 0777 || *file.Mode < 0) {
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("mode"), *file.Mode, fileModeErrorMsg))
@@ -2802,11 +2813,26 @@ func validateEnvVarValueFrom(ev core.EnvVar, fldPath *field.Path, opts PodValida
 		allErrs = append(allErrs, validateFileKeySelector(ev.ValueFrom.FileKeyRef, fldPath.Child("fileKeyRef"))...)
 	}
 
+	// DRADeviceFieldRef (alpha)
+	if ev.ValueFrom.DRADeviceFieldRef != nil {
+		numSources++
+		ref := ev.ValueFrom.DRADeviceFieldRef
+		if len(ref.ClaimName) == 0 {
+			allErrs = append(allErrs, field.Required(fldPath.Child("draDeviceFieldRef").Child("claimName"), ""))
+		}
+		if len(ref.RequestName) == 0 {
+			allErrs = append(allErrs, field.Required(fldPath.Child("draDeviceFieldRef").Child("requestName"), ""))
+		}
+		if ref.Attribute != "pciAddress" && ref.Attribute != "mdevUUID" && ref.Attribute != "uuid" {
+			allErrs = append(allErrs, field.NotSupported(fldPath.Child("draDeviceFieldRef").Child("attribute"), ref.Attribute, []string{"pciAddress", "mdevUUID", "uuid"}))
+		}
+	}
+
 	if numSources == 0 {
 		if opts.AllowEnvFilesValidation {
-			allErrs = append(allErrs, field.Invalid(fldPath, "", "must specify one of: `fieldRef`, `resourceFieldRef`, `configMapKeyRef`, `secretKeyRef` or `fileKeyRef`"))
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "must specify one of: `fieldRef`, `resourceFieldRef`, `configMapKeyRef`, `secretKeyRef`, `fileKeyRef` or `draDeviceFieldRef`"))
 		} else {
-			allErrs = append(allErrs, field.Invalid(fldPath, "", "must specify one of: `fieldRef`, `resourceFieldRef`, `configMapKeyRef` or `secretKeyRef`"))
+			allErrs = append(allErrs, field.Invalid(fldPath, "", "must specify one of: `fieldRef`, `resourceFieldRef`, `configMapKeyRef`, `secretKeyRef` or `draDeviceFieldRef`"))
 		}
 	} else if len(ev.Value) != 0 {
 		if numSources != 0 {
