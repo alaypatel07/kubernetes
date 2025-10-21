@@ -249,6 +249,12 @@ func (b *Builder) Pod() *v1.Pod {
 	pod.GenerateName = ""
 	b.podCounter++
 	pod.Name = fmt.Sprintf("tester%s-%d", b.driver.NameSuffix, b.podCounter)
+	// Keep the test container running long enough for interactive inspection.
+	// Override the default infinite loop with a bounded sleep.
+	if len(pod.Spec.Containers) > 0 {
+		pod.Spec.Containers[0].Command = []string{"/bin/sh", "-c", "sleep 3600"}
+		pod.Spec.Containers[0].Args = nil
+	}
 	return pod
 }
 

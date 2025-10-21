@@ -40,5 +40,16 @@ type device struct {
 
 // containerEdits are edits a container runtime must make to the OCI spec to expose the device.
 type containerEdits struct {
-	Env []string `json:"env,omitempty"`
+	Env    []string `json:"env,omitempty"`
+	Mounts []mount  `json:"mounts,omitempty"`
+}
+
+// mount specifies a host volume to mount into a container via CDI.
+type mount struct {
+	// Path of the mount on the host.
+	HostPath string `json:"hostPath"`
+	// Path of the mount within the container.
+	ContainerPath string `json:"containerPath"`
+	// Options for the mount, e.g. ["ro", "bind"].
+	Options []string `json:"options,omitempty"`
 }

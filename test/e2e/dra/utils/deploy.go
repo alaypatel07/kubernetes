@@ -71,6 +71,7 @@ import (
 	testdrivergomega "k8s.io/kubernetes/test/e2e/dra/test-driver/gomega"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
+	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2ereplicaset "k8s.io/kubernetes/test/e2e/framework/replicaset"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	"k8s.io/kubernetes/test/e2e/storage/drivers/proxy"
@@ -556,19 +557,31 @@ func (d *Driver) SetUp(nodes *Nodes, driverResources map[string]resourceslice.Dr
 		loggerCtx := klog.NewContext(ctx, logger)
 		fileOps := app.FileOperations{
 			Create: func(name string, content []byte) error {
-				klog.Background().Info("creating CDI file", "node", nodename, "filename", name, "content", string(content))
+				klog.Background().Info("creating file", "node", nodename, "filename", name, "content", string(content))
 				if d.IsLocal {
-					// Name starts with /cdi, which is how it is mapped in the container.
+					// Name starts with /cdi or /var/run/..., which is how it is mapped in the container.
 					// Here we need it under /var/run.
-					// Try to create /var/run/cdi, it might not exist yet.
 					name = path.Join("/var/run", name)
 					if err := os.MkdirAll(path.Dir(name), 0700); err != nil {
-						return fmt.Errorf("create CDI directory: %w", err)
+						return fmt.Errorf("create directory: %w", err)
 					}
 					if err := os.WriteFile(name, content, 0644); err != nil {
-						return fmt.Errorf("write CDI file: %w", err)
+						return fmt.Errorf("write file: %w", err)
 					}
 					return nil
+				}
+				// Ensure parent directory exists in the pod
+				dir := path.Dir(name)
+				_, stderr, err := e2epod.ExecWithOptions(d.f, e2epod.ExecOptions{
+					Command:       []string{"mkdir", "-p", dir},
+					Namespace:     pod.Namespace,
+					PodName:       pod.Name,
+					ContainerName: pod.Spec.Containers[0].Name,
+					CaptureStderr: true,
+					Quiet:         true,
+				})
+				if err != nil {
+					return fmt.Errorf("create directory %s: stderr=%q, %w", dir, stderr, err)
 				}
 				return d.createFile(&pod, name, content)
 			},
@@ -632,6 +645,12 @@ func (d *Driver) SetUp(nodes *Nodes, driverResources map[string]resourceslice.Dr
 
 			kubeletplugin.RegistrarDirectoryPath(registrarDirectoryPath),
 			kubeletplugin.RegistrarListener(d.listen(&pod, &listenerPort)),
+
+			// Enable framework attributes JSON + CDI mounts in e2e
+			// The controller's cache is automatically used for attribute lookups
+			kubeletplugin.AttributesJSON(true),
+			kubeletplugin.CDIDirectoryPath("/cdi"),
+			kubeletplugin.AttributesDirectoryPath("/var/run/dra-device-attributes"),
 		)
 		framework.ExpectNoError(err, "start kubelet plugin for node %s", pod.Spec.NodeName)
 		d.cleanup = append(d.cleanup, func(ctx context.Context) {

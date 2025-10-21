@@ -184,6 +184,7 @@ func NewCommand() *cobra.Command {
 	kubeletPluginsDir := fs.String("datadir", kubeletplugin.KubeletPluginsDir, "The per-driver directory where the DRA Unix domain socket will be created.")
 	fs = kubeletPluginFlagSets.FlagSet("CDI")
 	cdiDir := fs.String("cdi-dir", "/var/run/cdi", "directory for dynamically created CDI JSON files")
+	attrsDir := fs.String("dra-attrs-dir", "/var/run/dra-device-attributes", "directory for per-claim device attributes JSON files")
 	nodeName := fs.String("node-name", "", "name of the node that the kubelet plugin is responsible for")
 	numDevices := fs.Int("num-devices", 4, "number of devices to simulate per node")
 	fs = kubeletPlugin.Flags()
@@ -197,6 +198,9 @@ func NewCommand() *cobra.Command {
 		if err := os.MkdirAll(*cdiDir, os.FileMode(0750)); err != nil {
 			return fmt.Errorf("create CDI directory: %w", err)
 		}
+		if err := os.MkdirAll(*attrsDir, os.FileMode(0750)); err != nil {
+			return fmt.Errorf("create attributes directory: %w", err)
+		}
 		datadir := path.Join(*kubeletPluginsDir, *driverName)
 		if err := os.MkdirAll(filepath.Dir(datadir), 0750); err != nil {
 			return fmt.Errorf("create socket directory: %w", err)
@@ -208,8 +212,13 @@ func NewCommand() *cobra.Command {
 
 		devices := make([]resourceapi.Device, *numDevices)
 		for i := 0; i < *numDevices; i++ {
+			// Provide a simple attribute map for tests to fetch from ResourceSlice.
+			fooKey := resourceapi.QualifiedName("foo")
 			devices[i] = resourceapi.Device{
 				Name: fmt.Sprintf("device-%02d", i),
+				Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+					fooKey: {StringValue: func(s string) *string { return &s }("bar")},
+				},
 			}
 		}
 		driverResources := resourceslice.DriverResources{
@@ -222,6 +231,9 @@ func NewCommand() *cobra.Command {
 			},
 		}
 
+		// Pass through attrsDir via an environment variable consumed by StartPlugin default.
+		// The StartPlugin currently sets attrsDir to the default. Override here by setting
+		// the directory on the created instance after StartPlugin returns.
 		plugin, err := StartPlugin(cmd.Context(), *cdiDir, *driverName, clientset, *nodeName, FileOperations{DriverResources: &driverResources},
 			Options{EnableHealthService: true},
 			kubeletplugin.PluginDataDirectoryPath(datadir),
@@ -230,6 +242,7 @@ func NewCommand() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("start example plugin: %w", err)
 		}
+		plugin.attrsDir = *attrsDir
 
 		// Handle graceful shutdown. We need to delete Unix domain
 		// sockets.

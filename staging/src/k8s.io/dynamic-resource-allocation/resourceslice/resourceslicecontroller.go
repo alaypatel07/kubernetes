@@ -384,6 +384,49 @@ type Stats struct {
 	NumDeletes int64
 }
 
+// LookupDeviceAttributes returns device attributes (stringified) from the controller's
+// cached ResourceSlices, filtered by pool and device name.
+// Returns an empty map if not found.
+func (c *Controller) LookupDeviceAttributes(poolName, deviceName string) map[string]string {
+	attrs := map[string]string{}
+
+	objs, err := c.sliceStore.ByIndex(poolNameIndex, poolName)
+	if err != nil {
+		return attrs
+	}
+
+	for _, obj := range objs {
+		rs, ok := obj.(*resourceapi.ResourceSlice)
+		if !ok {
+			continue
+		}
+		for _, dv := range rs.Spec.Devices {
+			if dv.Name != deviceName {
+				continue
+			}
+			for k, v := range dv.Attributes {
+				key := string(k)
+				switch {
+				case v.StringValue != nil:
+					attrs[key] = *v.StringValue
+				case v.BoolValue != nil:
+					if *v.BoolValue {
+						attrs[key] = "true"
+					} else {
+						attrs[key] = "false"
+					}
+				case v.IntValue != nil:
+					attrs[key] = fmt.Sprintf("%d", *v.IntValue)
+				case v.VersionValue != nil:
+					attrs[key] = *v.VersionValue
+				}
+			}
+			return attrs
+		}
+	}
+	return attrs
+}
+
 // newController creates a new controller.
 func newController(ctx context.Context, options Options) (*Controller, error) {
 	if options.KubeClient == nil {

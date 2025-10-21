@@ -23,7 +23,11 @@ import (
 	"net"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
 	"sync"
+
+	"encoding/json"
 
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
@@ -31,9 +35,11 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	cgoresource "k8s.io/client-go/kubernetes/typed/resource/v1"
+	resourcelisterv1 "k8s.io/client-go/listers/resource/v1"
 	draclient "k8s.io/dynamic-resource-allocation/client"
 	"k8s.io/dynamic-resource-allocation/resourceclaim"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
@@ -288,6 +294,25 @@ func PluginDataDirectoryPath(path string) Option {
 	}
 }
 
+// CDIDirectoryPath sets where framework-managed CDI specs are written when
+// AttributesJSON is enabled. Defaults to /var/run/cdi.
+func CDIDirectoryPath(path string) Option {
+	return func(o *options) error {
+		o.cdiDir = path
+		return nil
+	}
+}
+
+// AttributesProvider allows a driver to customize which attributes are emitted
+// in the attributes JSON for a given claim/device. If not set, the framework
+// will emit a minimal structure containing claim and request names without attributes.
+func AttributesProvider(provider func(ctx context.Context, claim *resourceapi.ResourceClaim, dev Device) (map[string]string, error)) Option {
+	return func(o *options) error {
+		o.attributesProvider = provider
+		return nil
+	}
+}
+
 // PluginSocket sets the name of the socket inside the directory where
 // the DRA driver creates the socket for the DRA gRPC calls. This is used
 // by the kubelet to connect to the DRA plugin.
@@ -469,6 +494,45 @@ func DRAService(enabled bool) Option {
 	}
 }
 
+// AttributesJSON enables or disables framework-managed attributes JSON generation
+// and CDI mount per claim+request.
+func AttributesJSON(enabled bool) Option {
+	return func(o *options) error {
+		o.attributesJSON = enabled
+		return nil
+	}
+}
+
+// Writer sets a custom file writer for CDI specs and attributes JSON files.
+// If not set, files are written using os.WriteFile.
+// The writer parameter must have Create and Remove functions matching fileWriter.
+func Writer(create func(name string, content []byte) error, remove func(name string) error) Option {
+	return func(o *options) error {
+		o.writer = &fileWriter{
+			Create: create,
+			Remove: remove,
+		}
+		return nil
+	}
+}
+
+// AttributesDirectoryPath sets the directory where attributes JSON files get written
+// when AttributesJSON is enabled.
+func AttributesDirectoryPath(path string) Option {
+	return func(o *options) error {
+		o.attributesDir = path
+		return nil
+	}
+}
+
+// ResourceSliceLister provides a lister for framework-managed attribute lookups from cache.
+func ResourceSliceLister(lister resourcelisterv1.ResourceSliceLister) Option {
+	return func(o *options) error {
+		o.resourceSliceLister = lister
+		return nil
+	}
+}
+
 type options struct {
 	logger                     klog.Logger
 	grpcVerbosity              int
@@ -490,6 +554,18 @@ type options struct {
 	registrationService        bool
 	draService                 bool
 	healthService              *bool
+	// AttributesJSON enables writing per-claim+request attributes JSON and mounting via CDI.
+	attributesJSON bool
+	// AttributesDir is where attributes JSON files are written when attributesJSON is true.
+	attributesDir string
+	// CDIDir is where CDI spec JSON files are written.
+	cdiDir string
+	// AttributesDataProvider optionally allows drivers to customize the attributes map content.
+	attributesProvider func(ctx context.Context, claim *resourceapi.ResourceClaim, dev Device) (map[string]string, error)
+	// writer overrides file writes for CDI and attributes files.
+	writer *fileWriter
+	// Optional lister when driver wants framework-managed attribute lookups from cache.
+	resourceSliceLister resourcelisterv1.ResourceSliceLister
 }
 
 // Helper combines the kubelet registration service and the DRA node plugin
@@ -517,6 +593,19 @@ type Helper struct {
 	// if needed.
 	mutex                   sync.Mutex
 	resourceSliceController *resourceslice.Controller
+
+	// Framework-managed attributes JSON and CDI
+	attributesJSON      bool
+	attributesDir       string
+	cdiDir              string
+	attributesProvider  func(ctx context.Context, claim *resourceapi.ResourceClaim, dev Device) (map[string]string, error)
+	writer              *fileWriter
+	resourceSliceLister resourcelisterv1.ResourceSliceLister
+}
+
+type fileWriter struct {
+	Create func(name string, content []byte) error
+	Remove func(name string) error
 }
 
 // Start sets up all enabled gRPC servers (by default, one for registration,
@@ -543,6 +632,8 @@ func Start(ctx context.Context, plugin DRAPlugin, opts ...Option) (result *Helpe
 		},
 		draService:          true,
 		registrationService: true,
+		attributesJSON:      false,
+		attributesDir:       "/var/run/dra-device-attributes",
 	}
 	for _, option := range opts {
 		if err := option(&o); err != nil {
@@ -569,6 +660,9 @@ func Start(ctx context.Context, plugin DRAPlugin, opts ...Option) (result *Helpe
 	if o.pluginDataDirectoryPath == "" {
 		o.pluginDataDirectoryPath = path.Join(KubeletPluginsDir, o.driverName)
 	}
+	if o.cdiDir == "" {
+		o.cdiDir = "/var/run/cdi"
+	}
 	if o.pluginSocket == "" {
 		o.pluginSocket = "dra" + uidPart + ".sock" // "dra" is hard-coded. The directory is unique, so we get a unique full path also without the UID.
 	}
@@ -581,6 +675,20 @@ func Start(ctx context.Context, plugin DRAPlugin, opts ...Option) (result *Helpe
 		resourceClient: draclient.New(o.kubeClient),
 		serialize:      o.serialize,
 		plugin:         plugin,
+	}
+	// copy framework attributes options
+	d.attributesJSON = o.attributesJSON
+	d.attributesDir = o.attributesDir
+	d.cdiDir = o.cdiDir
+	d.attributesProvider = o.attributesProvider
+	d.resourceSliceLister = o.resourceSliceLister
+	if o.writer != nil {
+		d.writer = o.writer
+	} else {
+		d.writer = &fileWriter{
+			Create: func(name string, content []byte) error { return os.WriteFile(name, content, os.FileMode(0644)) },
+			Remove: func(name string) error { return os.Remove(name) },
+		}
 	}
 	if o.rollingUpdateUID != "" {
 		dir := o.pluginDataDirectoryPath
@@ -864,18 +972,121 @@ func (d *nodePluginImplementation) NodePrepareResources(ctx context.Context, req
 	resp := &drapbv1.NodePrepareResourcesResponse{Claims: map[string]*drapbv1.NodePrepareResourceResponse{}}
 	for uid, claimResult := range result {
 		var devices []*drapbv1.Device
-		for _, result := range claimResult.Devices {
+		for _, drvDev := range claimResult.Devices {
 			device := &drapbv1.Device{
-				RequestNames: stripSubrequestNames(result.Requests),
-				PoolName:     result.PoolName,
-				DeviceName:   result.DeviceName,
-				CdiDeviceIds: result.CDIDeviceIDs,
+				RequestNames: stripSubrequestNames(drvDev.Requests),
+				PoolName:     drvDev.PoolName,
+				DeviceName:   drvDev.DeviceName,
+				CdiDeviceIds: drvDev.CDIDeviceIDs,
 			}
 			devices = append(devices, device)
 		}
 		resp.Claims[string(uid)] = &drapbv1.NodePrepareResourceResponse{
 			Error:   errorString(claimResult.Err),
 			Devices: devices,
+		}
+	}
+	// Framework-managed attributes JSON + CDI mounts
+	if d.attributesJSON {
+		klog.V(2).InfoS("Framework attributes JSON enabled, generating files", "driverName", d.driverName)
+		// Note: Directory creation is handled by d.writer.Create() to support
+		// both local and remote (proxy) execution environments.
+
+		// Map claims by UID for lookup
+		claimsByUID := map[types.UID]*resourceapi.ResourceClaim{}
+		for _, c := range claims {
+			claimsByUID[c.UID] = c
+		}
+		for uid, claimResult := range result {
+			claim := claimsByUID[uid]
+			if claim == nil {
+				continue
+			}
+			for _, dev := range claimResult.Devices {
+				names := stripSubrequestNames(dev.Requests)
+				if len(names) == 0 {
+					for _, r := range claim.Status.Allocation.Devices.Results {
+						if r.Driver == d.driverName {
+							names = append(names, resourceclaim.BaseRequestRef(r.Request))
+						}
+					}
+				}
+				for _, reqName := range names {
+					attributes := map[string]string{}
+					// Prefer controller's cache if available, else lister, else provider.
+					if d.resourceSliceController != nil {
+						attributes = d.resourceSliceController.LookupDeviceAttributes(dev.PoolName, dev.DeviceName)
+					} else if d.resourceSliceLister != nil {
+						attributes = LookupDeviceAttributesFromLister(d.resourceSliceLister, d.driverName, d.nodeName, dev.PoolName, dev.DeviceName)
+					}
+					if len(attributes) == 0 && d.attributesProvider != nil {
+						provDev := Device{Requests: []string{reqName}, PoolName: dev.PoolName, DeviceName: dev.DeviceName}
+						if m, err := d.attributesProvider(ctx, claim, provDev); err == nil && m != nil {
+							for k, v := range m {
+								attributes[k] = v
+							}
+						}
+					}
+					payload := map[string]any{
+						"claims": []map[string]any{
+							{
+								"claimName": claim.Name,
+								"requests": []map[string]any{
+									{
+										"requestName": reqName,
+										"attributes":  attributes,
+									},
+								},
+							},
+						},
+					}
+					attrsFile := filepath.Join(d.attributesDir, fmt.Sprintf("%s-%s-%s.json", d.driverName, uid, reqName))
+					buf, err := json.Marshal(payload)
+					if err != nil {
+						return nil, fmt.Errorf("marshal attributes json: %w", err)
+					}
+					if err := d.writer.Create(attrsFile, buf); err != nil {
+						return nil, fmt.Errorf("write attributes file: %w", err)
+					}
+					// Use a different device name to avoid conflicting with driver's CDI device
+					deviceName := "claim-" + string(uid) + "-" + reqName + "-attrs"
+					vendorClass := d.driverName + "/test"
+					envs := []string{}
+					sort.Strings(envs)
+					cdiSpec := map[string]any{
+						"cdiVersion": "0.3.0",
+						"kind":       vendorClass,
+						"devices": []map[string]any{
+							{
+								"name": deviceName,
+								"containerEdits": map[string]any{
+									"env": envs,
+									"mounts": []map[string]any{{
+										"hostPath":      attrsFile,
+										"containerPath": attrsFile,
+										"options":       []string{"ro", "bind"},
+									}},
+								},
+							},
+						},
+					}
+					// Use a different filename to avoid overwriting driver's CDI spec
+					cdiFile := filepath.Join(d.cdiDir, fmt.Sprintf("%s-%s-%s-attrs.json", d.driverName, uid, reqName))
+					cdiBuf, err := json.Marshal(cdiSpec)
+					if err != nil {
+						return nil, fmt.Errorf("marshal cdi spec: %w", err)
+					}
+					if err := d.writer.Create(cdiFile, cdiBuf); err != nil {
+						return nil, fmt.Errorf("write cdi file: %w", err)
+					}
+					cdiID := d.driverName + "/test=" + deviceName
+					for _, devResp := range resp.Claims[string(uid)].Devices {
+						if devResp.DeviceName == dev.DeviceName && devResp.PoolName == dev.PoolName {
+							devResp.CdiDeviceIds = append(devResp.CdiDeviceIds, cdiID)
+						}
+					}
+				}
+			}
 		}
 	}
 	return resp, nil
@@ -937,5 +1148,113 @@ func (d *nodePluginImplementation) NodeUnprepareResources(ctx context.Context, r
 			Error: errorString(err),
 		}
 	}
+	// Framework-managed cleanup
+	if d.attributesJSON {
+		for _, claim := range claims {
+			// Remove any files for this claim UID
+			// Best-effort: ignore errors on removal
+			globs := []string{
+				filepath.Join(d.attributesDir, fmt.Sprintf("%s-%s-*.json", d.driverName, claim.UID)),
+				filepath.Join(d.cdiDir, fmt.Sprintf("%s-%s-*.json", d.driverName, claim.UID)),
+			}
+			for _, pattern := range globs {
+				matches, _ := filepath.Glob(pattern)
+				for _, f := range matches {
+					_ = os.Remove(f)
+				}
+			}
+		}
+	}
 	return resp, nil
+}
+
+// LookupDeviceAttributesFromLister returns device attributes (stringified) from ResourceSlice
+// using the provided lister, filtered by driver, node, pool and device name.
+// It returns an empty map if none are found.
+func LookupDeviceAttributesFromLister(lister resourcelisterv1.ResourceSliceLister, driverName, nodeName, poolName, deviceName string) map[string]string {
+	attrs := map[string]string{}
+	if lister == nil {
+		return attrs
+	}
+	slices, _ := lister.List(labels.Everything())
+	for _, rs := range slices {
+		if rs.Spec.Driver != driverName {
+			continue
+		}
+		if rs.Spec.NodeName != nil && *rs.Spec.NodeName != nodeName {
+			continue
+		}
+		if rs.Spec.Pool.Name != poolName {
+			continue
+		}
+		for _, dv := range rs.Spec.Devices {
+			if dv.Name != deviceName {
+				continue
+			}
+			for k, v := range dv.Attributes {
+				key := string(k)
+				switch {
+				case v.StringValue != nil:
+					attrs[key] = *v.StringValue
+				case v.BoolValue != nil:
+					if *v.BoolValue {
+						attrs[key] = "true"
+					} else {
+						attrs[key] = "false"
+					}
+				case v.IntValue != nil:
+					attrs[key] = fmt.Sprintf("%d", *v.IntValue)
+				case v.VersionValue != nil:
+					attrs[key] = *v.VersionValue
+				}
+			}
+			return attrs
+		}
+	}
+	return attrs
+}
+
+// LookupDeviceAttributesViaClient returns device attributes (stringified) from ResourceSlice
+// by listing via the typed client with field selectors for driver and node.
+// It returns an empty map on not found; returns an error only for client failures.
+func LookupDeviceAttributesViaClient(ctx context.Context, client cgoresource.ResourceV1Interface, driverName, nodeName, poolName, deviceName string) (map[string]string, error) {
+	attrs := map[string]string{}
+	if client == nil {
+		return attrs, nil
+	}
+	fs := fmt.Sprintf("%s=%s,%s=%s", resourceapi.ResourceSliceSelectorDriver, driverName, resourceapi.ResourceSliceSelectorNodeName, nodeName)
+	list, err := client.ResourceSlices().List(ctx, metav1.ListOptions{FieldSelector: fs})
+	if err != nil {
+		return attrs, err
+	}
+	for i := range list.Items {
+		rs := &list.Items[i]
+		if rs.Spec.Pool.Name != poolName {
+			continue
+		}
+		for _, dv := range rs.Spec.Devices {
+			if dv.Name != deviceName {
+				continue
+			}
+			for k, v := range dv.Attributes {
+				key := string(k)
+				switch {
+				case v.StringValue != nil:
+					attrs[key] = *v.StringValue
+				case v.BoolValue != nil:
+					if *v.BoolValue {
+						attrs[key] = "true"
+					} else {
+						attrs[key] = "false"
+					}
+				case v.IntValue != nil:
+					attrs[key] = fmt.Sprintf("%d", *v.IntValue)
+				case v.VersionValue != nil:
+					attrs[key] = *v.VersionValue
+				}
+			}
+			return attrs, nil
+		}
+	}
+	return attrs, nil
 }

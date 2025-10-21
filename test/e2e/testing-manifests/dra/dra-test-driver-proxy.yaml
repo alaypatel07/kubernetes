@@ -59,6 +59,8 @@ spec:
               name: registration-dir
             - mountPath: /cdi
               name: cdi-dir
+            - mountPath: /var/run/dra-device-attributes
+              name: dra-attrs-dir
           securityContext:
             privileged: true
 
@@ -78,3 +80,7 @@ spec:
             path: /var/run/cdi
             type: DirectoryOrCreate
           name: cdi-dir
+        - hostPath:
+            path: /var/run/dra-device-attributes
+            type: DirectoryOrCreate
+          name: dra-attrs-dir

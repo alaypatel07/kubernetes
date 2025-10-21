@@ -65,6 +65,7 @@ type ExamplePlugin struct {
 	fileOps        FileOperations
 
 	cdiDir     string
+	attrsDir   string
 	driverName string
 	nodeName   string
 
@@ -136,6 +137,12 @@ func (ex *ExamplePlugin) getJSONFilePath(claimUID types.UID, requestName string)
 	return filepath.Join(ex.cdiDir, fmt.Sprintf("%s-%s-%s.json", ex.driverName, claimUID, baseRequestRef))
 }
 
+// getAttrsFilePath returns the absolute path where the attributes JSON for a claim+request is/should be.
+func (ex *ExamplePlugin) getAttrsFilePath(claimUID types.UID, requestName string) string {
+	baseRequestRef := resourceclaim.BaseRequestRef(requestName)
+	return filepath.Join(ex.attrsDir, fmt.Sprintf("%s-%s-%s.json", ex.driverName, claimUID, baseRequestRef))
+}
+
 // FileOperations defines optional callbacks for handling CDI files
 // and some other configuration.
 type FileOperations struct {
@@ -201,6 +208,7 @@ func StartPlugin(ctx context.Context, cdiDir, driverName string, kubeClient kube
 		resourceClient:    draclient.New(kubeClient),
 		fileOps:           fileOps,
 		cdiDir:            cdiDir,
+		attrsDir:          "/var/run/dra-device-attributes",
 		driverName:        driverName,
 		nodeName:          nodeName,
 		prepared:          make(map[ClaimID][]kubeletplugin.Device),
@@ -209,9 +217,14 @@ func StartPlugin(ctx context.Context, cdiDir, driverName string, kubeClient kube
 		HealthControlChan: make(chan DeviceHealthUpdate, 10),
 	}
 
+	if err := os.MkdirAll(ex.attrsDir, os.FileMode(0750)); err != nil {
+		return nil, fmt.Errorf("create attributes directory: %w", err)
+	}
+
 	publicOpts = append(publicOpts,
 		kubeletplugin.GRPCInterceptor(ex.recordGRPCCall),
 		kubeletplugin.GRPCStreamInterceptor(ex.recordGRPCStream),
+		kubeletplugin.Writer(fileOps.Create, fileOps.Remove),
 	)
 	d, err := kubeletplugin.Start(ctx, ex, publicOpts...)
 	if err != nil {

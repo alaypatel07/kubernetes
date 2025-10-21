@@ -858,7 +858,15 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 		nodes := drautils.NewNodes(f, 1, 1)
 		maxAllocations := 1
 		numPods := 5
-		driver := drautils.NewDriver(f, nodes, drautils.DriverResources(maxAllocations)) // All tests get their own driver instance.
+		// Publish a simple device attribute in ResourceSlice so tests can read it.
+		fooKey := resourceapi.QualifiedName("foo")
+		fooVal := func(s string) *string { return &s }("bar")
+		perNodeDevices := map[string]map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+			"device-00": {
+				fooKey: {StringValue: fooVal},
+			},
+		}
+		driver := drautils.NewDriver(f, nodes, drautils.DriverResources(maxAllocations, perNodeDevices)) // All tests get their own driver instance.
 		driver.WithKubelet = withKubelet
 		b := drautils.NewBuilder(f, driver)
 		// We have to set the parameters *before* creating the class.
@@ -871,6 +879,19 @@ var _ = framework.SIGDescribe("node")(framework.WithLabel("DRA"), func() {
 			pod, template := b.PodInline()
 			b.Create(ctx, pod, template)
 			b.TestPod(ctx, f, pod, expectedEnv...)
+		})
+
+		ginkgo.It("exposes attributes JSON via CDI mount", func(ctx context.Context) {
+			pod, template := b.PodInline()
+			b.Create(ctx, pod, template)
+			time.Sleep(time.Second * 3600)
+			framework.ExpectNoError(e2epod.WaitForPodRunningInNamespace(ctx, f.ClientSet, pod))
+			// Check that the attributes file exists inside the container; we don't assert content here.
+			cmd := []string{"/bin/sh", "-c", "test -f /var/run/dra-device-attributes/*-*.json && echo OK || (ls -l /var/run/dra-device-attributes; exit 1)"}
+			stdout, stderr, err := e2epod.ExecCommandInContainerWithFullOutput(f, pod.Name, pod.Spec.Containers[0].Name, cmd...)
+			framework.Logf("stdout=%q stderr=%q", stdout, stderr)
+			framework.ExpectNoError(err, "attributes JSON not mounted")
+			time.Sleep(time.Second * 3600)
 		})
 
 		ginkgo.It("supports reusing resources", func(ctx context.Context) {
